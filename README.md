@@ -21,7 +21,7 @@ This system enables banks to make outbound calls to customers with outstanding b
 - **AI Agent**: Claude 3.5 Sonnet (Anthropic)
 - **Database**: SQLite
 - **Frontend**: React
-- **Deployment**: Docker / Railway
+- **Deployment**: Docker
 
 ## Quick Start
 

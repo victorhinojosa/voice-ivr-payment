@@ -3,12 +3,16 @@ import json
 from datetime import datetime
 from typing import Optional
 import os
+from pathlib import Path
 
 # Use /app/data for persistence in Docker
 DB_PATH = os.getenv("DB_PATH", "data/calls.db")
 
 async def init_db():
     """Initialize SQLite database with calls table."""
+    db_file = Path(DB_PATH)
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS calls (

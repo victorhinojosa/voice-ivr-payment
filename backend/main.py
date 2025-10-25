@@ -7,7 +7,7 @@ import os
 from dotenv import load_dotenv
 import openai
 
-from db import init_db, save_call, get_all_calls, get_pending_clarification, update_call_intent
+from db import init_db, save_call, get_all_calls, get_pending_clarification, update_call_intent, close_pool
 from claude_agent import process_initial_intent, process_confirmation
 
 env_path = Path(__file__).resolve().parent.parent / '.env'
@@ -22,8 +22,9 @@ async def lifespan(app: FastAPI):
     await init_db()
     print("Database initialized")
     yield
-    # Shutdown: cleanup if needed
-    print("Shutting down")
+    # Shutdown: Close database connection pool
+    await close_pool()
+    print("Database connection pool closed")
 
 app = FastAPI(title="Voice IVR PoC", lifespan=lifespan)
 

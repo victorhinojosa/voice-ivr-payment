@@ -1,38 +1,73 @@
 # Voice IVR Payment Negotiation System
 
-A voice AI system for automated debt collection where the bank calls customers to propose payment plans and negotiate terms using Twilio, Claude AI, and speech recognition.
-
-## Overview
-
-This system enables banks to make outbound calls to customers with outstanding balances, propose payment plans, and intelligently process customer responses in real-time.
+An automated outbound call system that uses Twilio and Claude AI to negotiate payment commitments with customers, extract Promise-to-Pay (PTP) data, and log outcomes to a real-time dashboard.
 
 ## Features
 
-- **Outbound Voice Calls**: Bank-initiated calls with professional greeting
-- **AI-Powered Intent Detection**: Claude analyzes customer responses in real-time
-- **Smart Conversation Flow**: Handles yes/no responses, clarifications, and negotiations
-- **Real-time Dashboard**: Monitor all calls, intents, and outcomes
-- **Single Call Record**: Updates conversation state without creating duplicates
+- **Outbound voice calls** via Twilio with a professional IVR greeting
+- **Multi-turn AI negotiation** — Claude handles the full conversation, offers plans, and adapts to responses
+- **Promise-to-Pay extraction** — after the call, Claude analyzes the transcript to extract outcome, date, and amount
+- **Real-time dashboard** — monitor calls, outcomes, and full transcripts in the browser
+- **PostgreSQL persistence** — all calls and config stored durably
 
 ## Tech Stack
 
-- **Backend**: Python FastAPI
-- **Telephony**: Twilio Programmable Voice
-- **AI Agent**: Claude 3.5 Sonnet (Anthropic)
-- **Database**: SQLite
-- **Frontend**: React
-- **Deployment**: Docker
+| Layer | Technology |
+|-------|-----------|
+| Backend | Python FastAPI (async) |
+| Telephony | Twilio Programmable Voice |
+| AI Agent | Claude Haiku (Anthropic) |
+| Database | PostgreSQL (asyncpg) |
+| Frontend | React 18 |
+
+## How It Works
+
+### Call Flow
+
+```
+1. User clicks "Call Now" in dashboard
+        ↓
+2. Backend creates DB record, fires outbound call via Twilio
+        ↓
+3. Customer answers → IVR greeting played
+   "Hello, this is a courtesy call regarding your outstanding balance of $X.
+    When would you be able to make a payment?"
+        ↓
+4. Customer speaks → Twilio sends speech-to-text to /process-response
+        ↓
+5. Claude (agent_reply) generates next response
+   - If customer commits with a date → set is_terminal: true
+   - If customer commits but no date → ask for a date
+   - If customer refuses → offer partial payment or plan
+   - If unclear → ask clarifying question
+   Loop up to 4 customer turns
+        ↓
+6. On terminal turn → Claude (extract_ptp) analyzes full transcript:
+   - outcome: promise_made | refused | no_commitment
+   - promise_date: resolved to absolute date (e.g. "tomorrow" → 2026-03-27)
+   - promise_amount: extracted or defaults to amount owed
+        ↓
+7. Result saved to PostgreSQL, dashboard refreshes
+```
+
+### Outcome Types
+
+| Outcome | Meaning |
+|---------|---------|
+| `promise_made` | Customer agreed to pay (has date + amount) |
+| `refused` | Customer explicitly refused |
+| `no_commitment` | Ambiguous — requires follow-up |
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Clone and install dependencies
 
 **Backend:**
 ```bash
 cd backend
 python -m venv venv
-.\venv\Scripts\Activate.ps1  # Windows
-source venv/bin/activate      # Mac/Linux
+.\venv\Scripts\Activate.ps1   # Windows
+source venv/bin/activate       # Mac/Linux
 pip install -r requirements.txt
 ```
 
@@ -42,182 +77,124 @@ cd frontend
 npm install
 ```
 
-### 2. Configure Environment
+### 2. Configure environment
 
-Create `.env` in the root directory:
+Copy `.env.example` to `.env` and fill in your credentials:
 
-```env
-TWILIO_ACCOUNT_SID=your_twilio_sid
-TWILIO_AUTH_TOKEN=your_twilio_token
-TWILIO_PHONE_NUMBER=your_twilio_number
-ANTHROPIC_API_KEY=your_anthropic_key
+```bash
+cp .env.example .env
 ```
 
-### 3. Run Locally
+```env
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_phone_number   # E.164 format: +1xxxxxxxxxx
 
-**Terminal 1 - Backend:**
+ANTHROPIC_API_KEY=your_anthropic_api_key
+
+DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+
+# Public URL where Twilio can reach your backend.
+# Use your ngrok HTTPS URL (e.g. https://abc123.ngrok.io)
+BASE_URL=https://your-ngrok-url
+```
+
+### 3. Run locally
+
+**Terminal 1 — Backend:**
 ```bash
 cd backend
 python main.py
 ```
 
-**Terminal 2 - Frontend:**
+**Terminal 2 — Frontend:**
 ```bash
 cd frontend
 npm start
 ```
 
-**Terminal 3 - Expose Backend:**
+**Terminal 3 — Expose backend to Twilio:**
 ```bash
 ngrok http 8000
 ```
 
-### 4. Configure Twilio Webhook
+Copy the ngrok HTTPS URL, set it as `BASE_URL` in your `.env`, then restart the backend.
 
-1. Copy your ngrok HTTPS URL
-2. Go to [Twilio Console](https://console.twilio.com/) → Phone Numbers → Active Numbers
-3. Click your number
-4. Under "Voice & Fax" → "A CALL COMES IN":
-   - URL: `https://your-ngrok-url.ngrok.io/voice`
+### 4. Configure Twilio webhook
+
+1. Go to [Twilio Console](https://console.twilio.com/) → Phone Numbers → Active Numbers
+2. Click your number
+3. Under **Voice & Fax → A Call Comes In**:
+   - URL: `https://your-ngrok-url/voice`
    - Method: `HTTP POST`
-5. Save
+4. Save
 
-## How It Works
+## Dashboard
 
-### Call Flow
+Open `http://localhost:3000`
 
-1. **Bank Calls Customer**
-   - System: "Hello, this is a courtesy call regarding your outstanding balance of $1,000. We'd like to propose a payment plan of $200 per month for 5 months. Would this arrangement work for you?"
+- **Control Panel** — set the phone number to call and the debt amount
+- **Stats Bar** — totals by outcome
+- **Call Table** — click any row to expand the full transcript
+- Auto-refreshes every 10 seconds
 
-2. **Customer Responds**
-   - **"Yes" / "I agree"** → Intent: `willing_to_pay`, Status: `confirmed`
-   - **"No" / "I can't afford that"** → Intent: `needs_negotiation`, Status: `needs_negotiation`
-   - **"Can you repeat?"** → System repeats offer, waits for response
+**Outcome badge colors:**
+- Green — `promise_made`
+- Red — `refused`
+- Gray — `no_commitment`
 
-3. **System Acts**
-   - Confirmed: "Excellent! We've confirmed your payment plan..."
-   - Declined: "I understand. Let me connect you with a specialist..."
-   - Unclear: Repeats offer and continues conversation
+## API Reference
 
-### Intent Categories
-
-| Intent | Description | Status |
-|--------|-------------|--------|
-| `willing_to_pay` | Customer accepts the payment plan | `confirmed` |
-| `needs_negotiation` | Customer declines or can't afford | `needs_negotiation` |
-| `unclear` | Response needs clarification | `pending_clarification` |
-| `no_response` | Customer doesn't respond | `no_response` |
-
-## Project Structure
-
-```
-mvp/
-├── backend/
-│   ├── main.py              # FastAPI app + webhook endpoints
-│   ├── claude_agent.py      # Claude AI integration
-│   ├── db.py                # SQLite operations
-│   ├── migrate_db.py        # Database migration script
-│   ├── requirements.txt     # Python dependencies
-│   └── Dockerfile
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx          # Dashboard component
-│   │   └── App.css          # Styling
-│   └── package.json
-├── .env.example             # Environment template
-├── .gitignore
-└── README.md
-```
-
-## API Endpoints
-
-- `GET/POST /voice` - Twilio webhook entry point
-- `POST /process-response` - Handles customer responses
-- `GET /api/calls` - Returns call logs for dashboard
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/calls` | List all call records |
+| `POST` | `/api/calls/initiate` | Trigger an outbound call |
+| `GET` | `/api/config` | Get current config (phone, amount) |
+| `PUT` | `/api/config` | Update a config value |
+| `POST` | `/voice` | Twilio webhook — call entry point |
+| `POST` | `/process-response` | Twilio webhook — customer speech |
+| `POST` | `/call-status` | Twilio status callback |
 
 ## Database Schema
 
 ```sql
 CREATE TABLE calls (
-    id INTEGER PRIMARY KEY,
-    timestamp TEXT,
-    caller_phone TEXT,
-    transcript TEXT,              -- Full conversation transcript
-    intent TEXT,                  -- willing_to_pay | needs_negotiation | unclear
-    payment_plan TEXT,            -- "$200/month for 5 months"
-    reply_text TEXT,              -- System's response
-    confidence INTEGER,           -- 0-100
-    status TEXT,                  -- confirmed | needs_negotiation | pending_clarification
-    confirmation_response TEXT,   -- yes | no | unclear
-    retry_count INTEGER
+    id               SERIAL PRIMARY KEY,
+    call_sid         TEXT,
+    phone_number     TEXT NOT NULL,
+    status           TEXT DEFAULT 'initiated',   -- initiated | completed | no_answer
+    outcome          TEXT,                        -- promise_made | refused | no_commitment
+    amount_owed      NUMERIC(10, 2),
+    promise_date     DATE,
+    promise_amount   NUMERIC(10, 2),
+    transcript       TEXT,                        -- JSON array of conversation turns
+    duration_seconds INTEGER,
+    initiated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at     TIMESTAMP
+);
+
+CREATE TABLE config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 ```
 
-## Testing
+## Project Structure
 
-### Test Scenarios
-
-1. **Acceptance Test**
-   - Call your number
-   - Say "Yes, I accept"
-   - Dashboard shows: `willing_to_pay`, status `confirmed`
-
-2. **Decline Test**
-   - Call your number
-   - Say "No, I can't afford that"
-   - Dashboard shows: `needs_negotiation`
-
-3. **Clarification Test**
-   - Call your number
-   - Say "Can you repeat the plan?"
-   - System repeats, waits for response
-   - Say "Yes"
-   - Dashboard shows ONE record with both responses in transcript
-
-### Checking Logs
-
-Backend logs show detailed conversation flow:
 ```
-[DEBUG] ========== PROCESSING CUSTOMER RESPONSE ==========
-[DEBUG] Customer: +1234567890
-[DEBUG] Response: 'Yes'
-[DEBUG] Claude analysis: answer='yes', confidence=95
-[DEBUG] ✓ Customer ACCEPTED offer → intent='willing_to_pay', status='confirmed'
+voice-ivr-payment/
+├── backend/
+│   ├── main.py            # FastAPI app, Twilio webhooks, call orchestration
+│   ├── claude_agent.py    # Claude AI — agent_reply() and extract_ptp()
+│   ├── db.py              # PostgreSQL operations
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx        # Dashboard UI
+│   │   └── App.css
+│   └── package.json
+├── docker-compose.yml
+├── .env.example
+└── README.md
 ```
-
-## Dashboard
-
-Access at `http://localhost:3000`
-
-**Features:**
-- Summary statistics (total calls, willing to pay, negotiating)
-- Call log table with color-coded intent badges
-- Click rows to expand and view full transcript
-- Auto-refreshes every 10 seconds
-
-**Intent Badge Colors:**
-- 🟢 Willing To Pay (green)
-- 🟡 Needs Negotiation (orange)
-- 🔵 Pending Clarification (blue)
-- ⚪ No Response (gray)
-
-## Configuration
-
-### Changing Payment Plan Offer
-
-Edit `backend/main.py` line 88-89:
-```python
-offered_plan = "$200/month for 5 months"  # Change here
-amount_owed = 1000.0                       # Change debt amount
-```
-
-### Adjusting Call Greeting
-
-Edit `backend/main.py` lines 60-64:
-```python
-gather.say(
-    "Your custom greeting here...",
-    voice="Polly.Joanna"
-)
-```
-

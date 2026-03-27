@@ -1,6 +1,6 @@
 # Voice IVR Payment Negotiation System
 
-An automated outbound call system that uses Twilio and Claude AI to negotiate payment commitments with customers, extract Promise-to-Pay (PTP) data, and log outcomes to a real-time dashboard.
+AI voice agent that autonomously negotiates real payment commitments over phone calls using Twilio and Claude.
 
 ## Features
 
@@ -40,7 +40,7 @@ An automated outbound call system that uses Twilio and Claude AI to negotiate pa
    - If customer commits but no date → ask for a date
    - If customer refuses → offer partial payment or plan
    - If unclear → ask clarifying question
-   Loop up to 4 customer turns
+   Controlled multi-turn loop (bounded to ensure reliability)
         ↓
 6. On terminal turn → Claude (extract_ptp) analyzes full transcript:
    - outcome: promise_made | refused | no_commitment
@@ -178,6 +178,9 @@ CREATE TABLE config (
     value TEXT NOT NULL
 );
 ```
+
+## Dashboard
+<img width="1897" height="917" alt="image" src="https://github.com/user-attachments/assets/96151195-130c-4f66-a0d0-0dd4a4442242" />
 
 ## Project Structure
 

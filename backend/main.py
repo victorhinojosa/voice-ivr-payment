@@ -1,33 +1,34 @@
-from fastapi import FastAPI, Form, Request, Response, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from twilio.twiml.voice_response import VoiceResponse, Gather
-from twilio.rest import Client as TwilioClient
+from fastapi.responses import Response
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
+import time
 from dotenv import load_dotenv
 
 import json
 
 from db import (
     init_db, close_pool,
-    create_call, update_call_sid, complete_call, mark_no_answer,
-    update_call_duration,
-    get_all_calls, get_call_by_sid, get_config, set_config,
+    create_call, update_call_sid, complete_call,
+    get_all_calls, get_config, set_config,
 )
 from claude_agent import extract_ptp, agent_reply
 
-# In-memory conversation state: call_sid → list of {"role": "agent"|"customer", "text": str}
+# In-memory conversation state: session_id → list of {"role": "agent"|"customer", "text": str}
 conversations: dict[str, list] = {}
+
+# Call IDs that have already been persisted, to guard against double-writes
+# (e.g. terminal turn followed by the finally-block fallback).
+_finalized_calls: set = set()
 
 env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+# Max customer turns before we force the conversation to a close.
+MAX_CUSTOMER_TURNS = 4
 
 
 @asynccontextmanager
@@ -56,239 +57,201 @@ async def root():
 
 
 # ---------------------------------------------------------------------------
-# Outbound call initiation
+# Browser voice session (WebSocket)
+# ---------------------------------------------------------------------------
+#
+# The browser runs speech-to-text and text-to-speech locally (Web Speech API),
+# so the backend only ever exchanges text. One WebSocket == one negotiation
+# session == one row in the `calls` table.
+#
+# Protocol (JSON messages):
+#   client → server:
+#     {"type": "start", "session_id": "<uuid>"}
+#     {"type": "user",  "text": "<recognized speech>"}
+#     {"type": "end"}                       # user hung up early
+#   server → client:
+#     {"type": "agent",    "text": "...", "is_terminal": false}
+#     {"type": "complete", "outcome": "...", "promise_date": "...", "promise_amount": 0.0}
+#     {"type": "error",    "message": "..."}
 # ---------------------------------------------------------------------------
 
-@app.post("/api/calls/initiate")
-async def initiate_call():
+async def _finalize_session(session_id: str, call_id, amount_owed: float, started_at: float):
     """
-    Read config, create a DB record, place an outbound Twilio call,
-    and attach the Twilio SID to the record.
+    Run PTP extraction over the accumulated transcript and persist the call.
+    Reuses the exact transcript format and extraction pipeline from the
+    Twilio implementation. Returns the PTP dict (or a no_commitment default).
     """
-    print(f"\n[DEBUG] ========== INITIATING OUTBOUND CALL ==========")
+    if call_id is not None and call_id in _finalized_calls:
+        return {"outcome": "no_commitment", "promise_date": None, "promise_amount": None}
 
-    config = await get_config()
-    debtor_phone = config["debtor_phone"]
-    amount_owed = float(config["amount_owed"])
-
-    print(f"[DEBUG] Calling {debtor_phone}, amount_owed={amount_owed}")
-
-    call_id = await create_call(phone_number=debtor_phone, amount_owed=amount_owed)
-    print(f"[DEBUG] Created call record id={call_id}")
-
-    twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-    call = twilio_client.calls.create(
-        to=debtor_phone,
-        from_=TWILIO_PHONE_NUMBER,
-        url=f"{BASE_URL}/voice",
-        status_callback=f"{BASE_URL}/call-status",
-        status_callback_method="POST",
-    )
-
-    await update_call_sid(call_id, call.sid)
-    print(f"[DEBUG] Twilio call placed: call_sid={call.sid}")
-
-    return {"call_id": call_id, "call_sid": call.sid}
-
-
-# ---------------------------------------------------------------------------
-# Twilio status callback
-# ---------------------------------------------------------------------------
-
-@app.post("/call-status")
-async def call_status(
-    CallSid: str = Form(...),
-    CallStatus: str = Form(...),
-    CallDuration: int = Form(0),
-):
-    """
-    Twilio status callback. Persists duration on completion; marks no_answer on failure.
-    """
-    print(f"\n[DEBUG] ========== CALL STATUS CALLBACK ==========")
-    print(f"[DEBUG] CallSid={CallSid}, CallStatus={CallStatus}, CallDuration={CallDuration}")
-
-    if CallStatus == "completed" and CallDuration > 0:
-        await update_call_duration(CallSid, CallDuration)
-        print(f"[DEBUG] Persisted duration={CallDuration}s for call_sid={CallSid}")
-    elif CallStatus in ("no-answer", "busy", "failed"):
-        call = await get_call_by_sid(CallSid)
-        if call:
-            await mark_no_answer(call["id"])
-            print(f"[DEBUG] Marked call {call['id']} as no_answer (status={CallStatus})")
-        else:
-            print(f"[WARN] No call record found for sid={CallSid}")
-
-    return Response(status_code=204)
-
-
-# ---------------------------------------------------------------------------
-# IVR voice flow
-# ---------------------------------------------------------------------------
-
-@app.get("/voice")
-@app.post("/voice")
-async def voice_webhook(request: Request):
-    """
-    Twilio webhook — greet caller and present the payment plan offer.
-    Reads amount and plan dynamically from config.
-    """
-    print(f"\n[DEBUG] ========== INCOMING CALL ==========")
-
-    config = await get_config()
-    amount_owed = config.get("amount_owed", "1000.00")
-
-    # Always parse form — works for both POST (Twilio outbound) and GET (direct test)
-    try:
-        form = await request.form()
-    except Exception:
-        form = {}
-    call_sid = form.get("CallSid") or request.query_params.get("CallSid", "")
-    print(f"[DEBUG] CallSid={call_sid}, amount_owed={amount_owed}")
-
-    response = VoiceResponse()
-
-    gather = Gather(
-        input="speech",
-        action=f"/process-response?call_sid={call_sid}",
-        method="POST",
-        speech_timeout="3",
-        language="en-US",
-    )
-    opening = (
-        f"Hello, this is a courtesy call regarding your outstanding balance of ${amount_owed}. "
-        "When would you be able to make a payment?"
-    )
-
-    # Seed conversation history for this call
-    if call_sid:
-        conversations[call_sid] = [{"role": "agent", "text": opening}]
-        print(f"[DEBUG] Initialized conversation history for call_sid={call_sid}")
-
-    gather.say(opening, voice="Polly.Joanna")
-    response.append(gather)
-
-    response.say("We didn't receive a response. We'll follow up with you shortly. Goodbye.")
-
-    return Response(content=str(response), media_type="application/xml")
-
-
-@app.post("/process-response")
-async def process_response(
-    call_sid: str = Query(...),
-    SpeechResult: str = Form(None),
-    From: str = Form(default="unknown"),
-    Confidence: float = Form(0.0),
-):
-    """
-    Process the customer's spoken response.
-    Runs a multi-turn agent loop; extracts PTP and persists on terminal turn.
-    """
-    print(f"\n[DEBUG] ========== PROCESSING CUSTOMER RESPONSE ==========")
-    print(f"[DEBUG] call_sid={call_sid}, From={From}")
-    print(f"[DEBUG] SpeechResult='{SpeechResult}', Confidence={Confidence}")
-
-    config = await get_config()
-    amount_owed = float(config.get("amount_owed", "1000.00"))
-
-    response = VoiceResponse()
-
-    # Retrieve the call record
-    call = await get_call_by_sid(call_sid)
-    print(f"[DEBUG] get_call_by_sid({call_sid}) returned: {call}")
-    if call is None:
-        print(f"[ERROR] Cannot persist outcome — call_id is None for call_sid={call_sid}")
-    call_id = call["id"] if call else None
-
-    # Load or initialize conversation history
-    history = conversations.get(call_sid, [])
-
-    # Handle empty speech
-    if not SpeechResult:
-        print(f"[DEBUG] No speech detected → no_commitment")
-        transcript = json.dumps(history)
-        if call_id is None:
-            print(f"[ERROR] Cannot persist outcome — call_id is None for call_sid={call_sid}")
-        else:
-            await complete_call(call_id=call_id, outcome="no_commitment", transcript=transcript)
-        conversations.pop(call_sid, None)
-        response.say("We weren't able to confirm a date. Someone will reach out to you soon. Goodbye.")
-        return Response(content=str(response), media_type="application/xml")
-
-    # Append customer turn
-    history.append({"role": "customer", "text": SpeechResult})
-    print(f"[DEBUG] Conversation turns so far: {len(history)}")
-
-    # Max-turns guard: customer turns = turns with role "customer"
-    customer_turn_count = sum(1 for t in history if t["role"] == "customer")
-    force_terminal = customer_turn_count >= 4  # 4 customer turns = 8 total history entries
-    print(f"[DEBUG] customer_turns={customer_turn_count}, force_terminal={force_terminal}")
-
-    if not force_terminal:
-        ar = await agent_reply(history, amount_owed)
-        reply_text = ar["reply"]
-        is_terminal = ar["is_terminal"]
-    else:
-        reply_text = "We weren't able to confirm a date. Someone will reach out to you soon. Goodbye."
-        is_terminal = True
-
-    print(f"[DEBUG] is_terminal={is_terminal}, reply='{reply_text}'")
-
-    if not is_terminal:
-        # Continue conversation — append agent reply and loop back
-        history.append({"role": "agent", "text": reply_text})
-        conversations[call_sid] = history
-
-        gather = Gather(
-            input="speech",
-            action=f"/process-response?call_sid={call_sid}",
-            method="POST",
-            speech_timeout="3",
-            language="en-US",
-        )
-        gather.say(reply_text, voice="Polly.Joanna")
-        response.append(gather)
-        response.say("We didn't receive a response. We'll follow up with you shortly. Goodbye.")
-        return Response(content=str(response), media_type="application/xml")
-
-    # Terminal turn — extract PTP from full transcript and persist
-    history.append({"role": "agent", "text": reply_text})
-    full_transcript_text = " | ".join(f"{t['role']}: {t['text']}" for t in history)
+    history = conversations.get(session_id, [])
     transcript_json = json.dumps(history)
+    duration_seconds = max(1, int(time.monotonic() - started_at))
 
-    print(f"[DEBUG] Terminal — extracting PTP from full transcript")
-    ptp = await extract_ptp(full_transcript_text, amount_owed)
-    outcome = ptp["outcome"]
-    promise_date = ptp["promise_date"]
-    promise_amount = ptp["promise_amount"]
+    if not history:
+        ptp = {"outcome": "no_commitment", "promise_date": None, "promise_amount": None}
+    else:
+        full_transcript_text = " | ".join(f"{t['role']}: {t['text']}" for t in history)
+        print(f"[DEBUG] Finalizing session {session_id} — extracting PTP")
+        ptp = await extract_ptp(full_transcript_text, amount_owed)
 
-    print(f"[DEBUG] PTP extraction: outcome='{outcome}', date={promise_date}, amount={promise_amount}")
-
-    if call_id:
+    if call_id is not None:
         await complete_call(
             call_id=call_id,
-            outcome=outcome,
+            outcome=ptp["outcome"],
             transcript=transcript_json,
-            promise_date=promise_date,
-            promise_amount=promise_amount,
+            duration_seconds=duration_seconds,
+            promise_date=ptp["promise_date"],
+            promise_amount=ptp["promise_amount"],
         )
-        print(f"[DEBUG] ✓ Completed call {call_id}: outcome='{outcome}'")
-
-    conversations.pop(call_sid, None)
-
-    # Voice response by outcome
-    if outcome == "promise_made":
-        closing = (
-            f"Thank you. We've recorded your payment commitment of "
-            f"${promise_amount:.2f} on {promise_date}. "
-            "You'll receive a confirmation shortly. Goodbye."
-        )
-    elif outcome == "refused":
-        closing = "I understand. A specialist will follow up with you. Goodbye."
+        _finalized_calls.add(call_id)
+        print(f"[DEBUG] Completed call {call_id}: outcome='{ptp['outcome']}'")
     else:
-        closing = reply_text  # use the agent's closing line
+        print(f"[ERROR] Cannot persist outcome — call_id is None for session={session_id}")
 
-    response.say(closing, voice="Polly.Joanna")
-    return Response(content=str(response), media_type="application/xml")
+    return ptp
+
+
+@app.websocket("/ws/session")
+async def voice_session(websocket: WebSocket):
+    await websocket.accept()
+    print(f"\n[DEBUG] ========== WEBSOCKET SESSION OPENED ==========")
+
+    session_id = None
+    call_id = None
+    amount_owed = 1000.0
+    started_at = time.monotonic()
+    finalized = False
+
+    try:
+        config = await get_config()
+        amount_owed = float(config.get("amount_owed", "1000.00"))
+        debtor_phone = config.get("debtor_phone", "unknown")
+
+        # Wait for the client's "start" message.
+        first = await websocket.receive_json()
+        if first.get("type") != "start":
+            await websocket.send_json({"type": "error", "message": "expected start message"})
+            return
+
+        session_id = first.get("session_id") or f"web-{int(started_at * 1000)}"
+        started_at = time.monotonic()
+
+        # Create the call row and tag it with the browser session id (reuses call_sid column).
+        call_id = await create_call(phone_number=debtor_phone, amount_owed=amount_owed)
+        await update_call_sid(call_id, session_id)
+        print(f"[DEBUG] Created call id={call_id}, session_id={session_id}, amount_owed={amount_owed}")
+
+        # Seed the conversation with the agent's opening line and speak it.
+        opening = (
+            f"Hello, this is a courtesy call regarding your outstanding balance of "
+            f"${amount_owed:.2f}. When would you be able to make a payment?"
+        )
+        conversations[session_id] = [{"role": "agent", "text": opening}]
+        await websocket.send_json({"type": "agent", "text": opening, "is_terminal": False})
+
+        # Turn loop.
+        while True:
+            msg = await websocket.receive_json()
+            msg_type = msg.get("type")
+
+            if msg_type == "end":
+                print(f"[DEBUG] Client ended session {session_id}")
+                break
+
+            if msg_type != "user":
+                continue
+
+            speech = (msg.get("text") or "").strip()
+            history = conversations.get(session_id, [])
+
+            if not speech:
+                # No usable speech — close out as no_commitment (mirrors empty-speech path).
+                reply_text = "We weren't able to confirm a date. Someone will reach out to you soon. Goodbye."
+                history.append({"role": "agent", "text": reply_text})
+                conversations[session_id] = history
+                ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
+                finalized = True
+                await websocket.send_json({"type": "agent", "text": reply_text, "is_terminal": True})
+                await websocket.send_json({
+                    "type": "complete",
+                    "outcome": ptp["outcome"],
+                    "promise_date": ptp["promise_date"],
+                    "promise_amount": ptp["promise_amount"],
+                })
+                break
+
+            # Append the customer turn.
+            history.append({"role": "customer", "text": speech})
+            conversations[session_id] = history
+
+            # Max-turns guard.
+            customer_turns = sum(1 for t in history if t["role"] == "customer")
+            force_terminal = customer_turns >= MAX_CUSTOMER_TURNS
+
+            if force_terminal:
+                reply_text = "We weren't able to confirm a date. Someone will reach out to you soon. Goodbye."
+                is_terminal = True
+            else:
+                ar = await agent_reply(history, amount_owed)
+                reply_text = ar["reply"]
+                is_terminal = ar["is_terminal"]
+
+            history.append({"role": "agent", "text": reply_text})
+            conversations[session_id] = history
+
+            if not is_terminal:
+                await websocket.send_json({"type": "agent", "text": reply_text, "is_terminal": False})
+                continue
+
+            # Terminal turn — extract PTP and persist.
+            ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
+            finalized = True
+
+            if ptp["outcome"] == "promise_made":
+                closing = (
+                    f"Thank you. We've recorded your payment commitment of "
+                    f"${ptp['promise_amount']:.2f} on {ptp['promise_date']}. "
+                    "You'll receive a confirmation shortly. Goodbye."
+                )
+            elif ptp["outcome"] == "refused":
+                closing = "I understand. A specialist will follow up with you. Goodbye."
+            else:
+                closing = reply_text
+
+            await websocket.send_json({"type": "agent", "text": closing, "is_terminal": True})
+            await websocket.send_json({
+                "type": "complete",
+                "outcome": ptp["outcome"],
+                "promise_date": ptp["promise_date"],
+                "promise_amount": ptp["promise_amount"],
+            })
+            break
+
+    except WebSocketDisconnect:
+        print(f"[DEBUG] WebSocket disconnected (session={session_id})")
+    except Exception as e:
+        print(f"[ERROR] voice_session failed: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": "session error"})
+        except Exception:
+            pass
+    finally:
+        # Best-effort persistence if the session ended without a clean terminal turn.
+        if session_id is not None and not finalized and call_id is not None:
+            try:
+                await _finalize_session(session_id, call_id, amount_owed, started_at)
+            except Exception as e:
+                print(f"[ERROR] finalize-on-disconnect failed: {e}")
+        if session_id is not None:
+            conversations.pop(session_id, None)
+        if call_id is not None:
+            _finalized_calls.discard(call_id)
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+        print(f"[DEBUG] ========== WEBSOCKET SESSION CLOSED (session={session_id}) ==========")
 
 
 # ---------------------------------------------------------------------------

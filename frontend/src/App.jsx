@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
+import VoiceSession from './VoiceSession';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -42,14 +43,13 @@ function formatCurrency(amount) {
 // ---------------------------------------------------------------------------
 // Control Panel
 // ---------------------------------------------------------------------------
-function ControlPanel({ onCallInitiated }) {
+function ControlPanel() {
   const [config, setConfig] = useState(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState(null);
-  const [calling, setCalling] = useState(false);
-  const [callMessage, setCallMessage] = useState(null); // {type: 'success'|'error', text}
+  const [saveError, setSaveError] = useState(null);
 
   useEffect(() => {
     fetch(`${API_URL}/api/config`)
@@ -61,7 +61,7 @@ function ControlPanel({ onCallInitiated }) {
   const startEdit = () => {
     setDraft({ ...config });
     setEditing(true);
-    setCallMessage(null);
+    setSaveError(null);
   };
 
   const cancelEdit = () => {
@@ -82,27 +82,7 @@ function ControlPanel({ onCallInitiated }) {
       setConfig({ ...draft });
       setEditing(false);
     } catch (err) {
-      setCallMessage({ type: 'error', text: err.message });
-    }
-  };
-
-  const initiateCall = async () => {
-    setCalling(true);
-    setCallMessage(null);
-    try {
-      const r = await fetch(`${API_URL}/api/calls/initiate`, { method: 'POST' });
-      const data = await r.json();
-      if (!r.ok) {
-        const msg = data.detail || data.message || JSON.stringify(data);
-        setCallMessage({ type: 'error', text: `Error: ${msg}` });
-      } else {
-        setCallMessage({ type: 'success', text: `Call placed — SID: ${data.call_sid}` });
-        onCallInitiated();
-      }
-    } catch (err) {
-      setCallMessage({ type: 'error', text: `Network error: ${err.message}` });
-    } finally {
-      setCalling(false);
+      setSaveError(err.message);
     }
   };
 
@@ -136,20 +116,7 @@ function ControlPanel({ onCallInitiated }) {
         </div>
       </div>
 
-      <div className="call-action">
-        <button
-          className="btn btn-call"
-          onClick={initiateCall}
-          disabled={calling || editing}
-        >
-          {calling ? 'Calling…' : 'Call Now'}
-        </button>
-        {callMessage && (
-          <p className={callMessage.type === 'error' ? 'error-text' : 'success-text'}>
-            {callMessage.text}
-          </p>
-        )}
-      </div>
+      {saveError && <p className="error-text">{saveError}</p>}
     </div>
   );
 }
@@ -276,7 +243,8 @@ function App() {
       </header>
 
       <div className="container">
-        <ControlPanel onCallInitiated={fetchCalls} />
+        <ControlPanel />
+        <VoiceSession onSessionComplete={fetchCalls} />
 
         {callsLoading ? (
           <p className="muted center-text">Loading calls…</p>

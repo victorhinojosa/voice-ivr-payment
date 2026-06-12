@@ -1,50 +1,54 @@
 # Voice IVR Payment Negotiation System
 
-AI voice agent that autonomously negotiates real payment commitments over phone calls using Twilio and Claude.
+AI voice agent that autonomously negotiates real payment commitments in a **browser-based** voice session using the Web Speech API and Claude.
 
 ## Features
 
-- **Outbound voice calls** via Twilio with a professional IVR greeting
+- **In-browser voice session** — the agent speaks and the user replies through their microphone, entirely in the browser (no telephony provider)
 - **Multi-turn AI negotiation** — Claude handles the full conversation, offers plans, and adapts to responses
-- **Promise-to-Pay extraction** — after the call, Claude analyzes the transcript to extract outcome, date, and amount
-- **Real-time dashboard** — monitor calls, outcomes, and full transcripts in the browser
-- **PostgreSQL persistence** — all calls and config stored durably
+- **Promise-to-Pay extraction** — after the session, Claude analyzes the transcript to extract outcome, date, and amount
+- **Real-time dashboard** — monitor sessions, outcomes, and full transcripts in the browser
+- **PostgreSQL persistence** — all sessions and config stored durably
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python FastAPI (async) |
-| Telephony | Twilio Programmable Voice |
+| Voice transport | WebSocket (`/ws/session`) |
+| Speech (STT/TTS) | Browser Web Speech API (`SpeechRecognition` + `SpeechSynthesis`) |
 | AI Agent | Claude Haiku (Anthropic) |
 | Database | PostgreSQL (asyncpg) |
 | Frontend | React 18 |
 
+> **Browser support:** the Web Speech API for speech *recognition* is currently supported in Chromium-based browsers (**Chrome** and **Edge**). Firefox and Safari do not reliably support `SpeechRecognition`. The UI detects this and shows a message on unsupported browsers.
+
 ## How It Works
 
-### Call Flow
+### Session Flow
 
 ```
-1. User clicks "Call Now" in dashboard
+1. User clicks "Start Negotiation" in the dashboard
         ↓
-2. Backend creates DB record, fires outbound call via Twilio
+2. Browser opens a WebSocket to the backend and sends {type: "start"}
         ↓
-3. Customer answers → IVR greeting played
+3. Backend creates a DB record (calls table) and returns the agent's opening line
    "Hello, this is a courtesy call regarding your outstanding balance of $X.
     When would you be able to make a payment?"
+   → browser speaks it via SpeechSynthesis (TTS)
         ↓
-4. Customer speaks → Twilio sends speech-to-text to /process-response
+4. Browser listens via SpeechRecognition (STT) and sends the recognized
+   text to the backend: {type: "user", text: "..."}
         ↓
-5. Claude (agent_reply) generates next response
+5. Claude (agent_reply) generates the next response
    - If customer commits with a date → set is_terminal: true
    - If customer commits but no date → ask for a date
-   - If customer refuses → offer partial payment or plan
-   - If unclear → ask clarifying question
+   - If unclear → ask a clarifying question
    Controlled multi-turn loop (bounded to ensure reliability)
         ↓
-6. On terminal turn → Claude (extract_ptp) analyzes full transcript:
+6. On terminal turn → Claude (extract_ptp) analyzes the full transcript:
    - outcome: promise_made | refused | no_commitment
-   - promise_date: resolved to absolute date (e.g. "tomorrow" → 2026-03-27)
+   - promise_date: resolved to an absolute date
    - promise_amount: extracted or defaults to amount owed
         ↓
 7. Result saved to PostgreSQL, dashboard refreshes
@@ -86,17 +90,9 @@ cp .env.example .env
 ```
 
 ```env
-TWILIO_ACCOUNT_SID=your_twilio_account_sid
-TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=your_twilio_phone_number   # E.164 format: +1xxxxxxxxxx
-
 ANTHROPIC_API_KEY=your_anthropic_api_key
 
 DATABASE_URL=postgresql://user:password@localhost:5432/dbname
-
-# Public URL where Twilio can reach your backend.
-# Use your ngrok HTTPS URL (e.g. https://abc123.ngrok.io)
-BASE_URL=https://your-ngrok-url
 ```
 
 ### 3. Run locally
@@ -113,27 +109,16 @@ cd frontend
 npm start
 ```
 
-**Terminal 3 — Expose backend to Twilio:**
-```bash
-ngrok http 8000
-```
+Open `http://localhost:3000` in **Chrome or Edge** and allow microphone access when prompted.
 
-Copy the ngrok HTTPS URL, set it as `BASE_URL` in your `.env`, then restart the backend.
-
-### 4. Configure Twilio webhook
-
-1. Go to [Twilio Console](https://console.twilio.com/) → Phone Numbers → Active Numbers
-2. Click your number
-3. Under **Voice & Fax → A Call Comes In**:
-   - URL: `https://your-ngrok-url/voice`
-   - Method: `HTTP POST`
-4. Save
+> No public tunnel (ngrok) or telephony account is required — the voice session runs locally in the browser against the backend WebSocket.
 
 ## Dashboard
 
 Open `http://localhost:3000`
 
-- **Control Panel** — set the phone number to call and the debt amount
+- **Control Panel** — set the phone number (label) and the debt amount
+- **Voice Negotiation** — click **Start Negotiation** to run a live session; the live transcript appears as the conversation proceeds
 - **Stats Bar** — totals by outcome
 - **Call Table** — click any row to expand the full transcript
 - Auto-refreshes every 10 seconds
@@ -147,20 +132,33 @@ Open `http://localhost:3000`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/calls` | List all call records |
-| `POST` | `/api/calls/initiate` | Trigger an outbound call |
+| `GET` | `/api/calls` | List all session records |
 | `GET` | `/api/config` | Get current config (phone, amount) |
 | `PUT` | `/api/config` | Update a config value |
-| `POST` | `/voice` | Twilio webhook — call entry point |
-| `POST` | `/process-response` | Twilio webhook — customer speech |
-| `POST` | `/call-status` | Twilio status callback |
+| `WS` | `/ws/session` | Browser voice session (see protocol below) |
+
+### WebSocket protocol (`/ws/session`)
+
+```
+client → server:
+  {"type": "start", "session_id": "<uuid>"}   # open the session
+  {"type": "user",  "text": "<recognized speech>"}
+  {"type": "end"}                              # user ended early
+
+server → client:
+  {"type": "agent",    "text": "...", "is_terminal": false}
+  {"type": "complete", "outcome": "...", "promise_date": "...", "promise_amount": 0.0}
+  {"type": "error",    "message": "..."}
+```
+
+The browser-generated `session_id` is stored in the `calls.call_sid` column.
 
 ## Database Schema
 
 ```sql
 CREATE TABLE calls (
     id               SERIAL PRIMARY KEY,
-    call_sid         TEXT,
+    call_sid         TEXT,                        -- browser session id
     phone_number     TEXT NOT NULL,
     status           TEXT DEFAULT 'initiated',   -- initiated | completed | no_answer
     outcome          TEXT,                        -- promise_made | refused | no_commitment
@@ -179,22 +177,20 @@ CREATE TABLE config (
 );
 ```
 
-## Dashboard
-<img width="1897" height="917" alt="image" src="https://github.com/user-attachments/assets/96151195-130c-4f66-a0d0-0dd4a4442242" />
-
 ## Project Structure
 
 ```
 voice-ivr-payment/
 ├── backend/
-│   ├── main.py            # FastAPI app, Twilio webhooks, call orchestration
+│   ├── main.py            # FastAPI app, /ws/session voice transport, session orchestration
 │   ├── claude_agent.py    # Claude AI — agent_reply() and extract_ptp()
 │   ├── db.py              # PostgreSQL operations
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx        # Dashboard UI
+│   │   ├── App.jsx          # Dashboard UI
+│   │   ├── VoiceSession.jsx # Browser voice session (Web Speech API + WebSocket)
 │   │   └── App.css
 │   └── package.json
 ├── docker-compose.yml

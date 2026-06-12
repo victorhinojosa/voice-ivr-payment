@@ -311,3 +311,89 @@ body {
   color: #9ca3af;
   cursor: default;
 }
+
+/* Voice Session */
+.voice-session {
+  margin-bottom: 1.5rem;
+}
+
+.voice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.voice-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.voice-status {
+  display: inline-block;
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.voice-status-listening { color: #10b981; }
+.voice-status-speaking  { color: #3b82f6; }
+.voice-status-thinking  { color: #f59e0b; }
+.voice-status-error     { color: #ef4444; }
+.voice-status-done      { color: #6366f1; }
+
+.voice-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.voice-transcript {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.voice-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 80%;
+  padding: 0.625rem 0.875rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.voice-bubble-agent {
+  align-self: flex-start;
+  background: #eef2ff;
+  border-left: 3px solid #6366f1;
+}
+
+.voice-bubble-customer {
+  align-self: flex-end;
+  background: #ecfdf5;
+  border-right: 3px solid #10b981;
+}
+
+.voice-bubble-interim {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.voice-bubble-role {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6b7280;
+}
+
+.voice-bubble-text {
+  color: #111827;
+}

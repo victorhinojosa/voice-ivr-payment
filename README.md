@@ -1,4 +1,4 @@
-# Voice IVR Payment Negotiation System
+# AI Collections Operations Platform
 
 AI voice agent that autonomously negotiates real payment commitments in a **browser-based** voice session using the Web Speech API and Claude.
 
@@ -8,20 +8,22 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
 - **Multi-turn AI negotiation** — Claude handles the full conversation, offers plans, and adapts to responses
 - **Promise-to-Pay extraction** — after the session, Claude analyzes the transcript to extract outcome, date, and amount
 - **Real-time dashboard** — monitor sessions, outcomes, and full transcripts in the browser
-- **PostgreSQL persistence** — all sessions and config stored durably
+- **Supabase (Postgres) persistence** — all sessions and config stored durably in a hosted database, auto-provisioned on first run
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python FastAPI (async) |
-| Voice transport | WebSocket (`/ws/session`) |
-| Speech (STT/TTS) | Browser Web Speech API (`SpeechRecognition` + `SpeechSynthesis`) |
-| AI Agent | Claude Haiku (Anthropic) |
-| Database | PostgreSQL (asyncpg) |
-| Frontend | React 18 |
 
-> **Browser support:** the Web Speech API for speech *recognition* is currently supported in Chromium-based browsers (**Chrome** and **Edge**). Firefox and Safari do not reliably support `SpeechRecognition`. The UI detects this and shows a message on unsupported browsers.
+| Layer            | Technology                                                       |
+| ---------------- | ---------------------------------------------------------------- |
+| Backend          | Python FastAPI (async)                                           |
+| Voice transport  | WebSocket (`/ws/session`)                                        |
+| Speech (STT/TTS) | Browser Web Speech API (`SpeechRecognition` + `SpeechSynthesis`) |
+| AI Agent         | Claude Haiku (Anthropic)                                         |
+| Database         | Supabase (asyncpg)                                               |
+| Frontend         | React 18                                                         |
+
+
+> **Browser support:** the Web Speech API for speech *recognition* is currently supported in Chromium-based browsers (**Chrome** and **Edge**). Firefox and Safari do not reliably support `SpeechRecognition`. 
 
 ## How It Works
 
@@ -51,22 +53,25 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
    - promise_date: resolved to an absolute date
    - promise_amount: extracted or defaults to amount owed
         ↓
-7. Result saved to PostgreSQL, dashboard refreshes
+7. Result saved to Database, dashboard refreshes
 ```
 
 ### Outcome Types
 
-| Outcome | Meaning |
-|---------|---------|
-| `promise_made` | Customer agreed to pay (has date + amount) |
-| `refused` | Customer explicitly refused |
-| `no_commitment` | Ambiguous — requires follow-up |
+
+| Outcome         | Meaning                                    |
+| --------------- | ------------------------------------------ |
+| `promise_made`  | Customer agreed to pay (has date + amount) |
+| `refused`       | Customer explicitly refused                |
+| `no_commitment` | Ambiguous — requires follow-up             |
+
 
 ## Quick Start
 
 ### 1. Clone and install dependencies
 
 **Backend:**
+
 ```bash
 cd backend
 python -m venv venv
@@ -76,6 +81,7 @@ pip install -r requirements.txt
 ```
 
 **Frontend:**
+
 ```bash
 cd frontend
 npm install
@@ -92,26 +98,24 @@ cp .env.example .env
 ```env
 ANTHROPIC_API_KEY=your_anthropic_api_key
 
-DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require
 ```
 
 ### 3. Run locally
 
 **Terminal 1 — Backend:**
+
 ```bash
 cd backend
 python main.py
 ```
 
 **Terminal 2 — Frontend:**
+
 ```bash
 cd frontend
 npm start
 ```
-
-Open `http://localhost:3000` in **Chrome or Edge** and allow microphone access when prompted.
-
-> No public tunnel (ngrok) or telephony account is required — the voice session runs locally in the browser against the backend WebSocket.
 
 ## Dashboard
 
@@ -124,18 +128,21 @@ Open `http://localhost:3000`
 - Auto-refreshes every 10 seconds
 
 **Outcome badge colors:**
+
 - Green — `promise_made`
 - Red — `refused`
 - Gray — `no_commitment`
 
 ## API Reference
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/calls` | List all session records |
-| `GET` | `/api/config` | Get current config (phone, amount) |
-| `PUT` | `/api/config` | Update a config value |
-| `WS` | `/ws/session` | Browser voice session (see protocol below) |
+
+| Method | Endpoint      | Description                                |
+| ------ | ------------- | ------------------------------------------ |
+| `GET`  | `/api/calls`  | List all session records                   |
+| `GET`  | `/api/config` | Get current config (phone, amount)         |
+| `PUT`  | `/api/config` | Update a config value                      |
+| `WS`   | `/ws/session` | Browser voice session (see protocol below) |
+
 
 ### WebSocket protocol (`/ws/session`)
 
@@ -197,3 +204,4 @@ voice-ivr-payment/
 ├── .env.example
 └── README.md
 ```
+

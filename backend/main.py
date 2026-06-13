@@ -1,7 +1,5 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
-from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
@@ -11,9 +9,9 @@ from dotenv import load_dotenv
 import json
 
 from db import (
-    init_db, close_pool,
+    close_pool,
     create_call, update_call_sid, complete_call,
-    get_all_calls, get_config, set_config,
+    get_all_calls,
 )
 from claude_agent import extract_ptp, agent_reply
 
@@ -33,8 +31,6 @@ MAX_CUSTOMER_TURNS = 4
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
-    print("Database initialized")
     yield
     await close_pool()
     print("Database connection pool closed")
@@ -124,9 +120,6 @@ async def voice_session(websocket: WebSocket):
     finalized = False
 
     try:
-        config = await get_config()
-        amount_owed = float(config.get("amount_owed", "1000.00"))
-        debtor_phone = config.get("debtor_phone", "unknown")
 
         # Wait for the client's "start" message.
         first = await websocket.receive_json()
@@ -135,6 +128,9 @@ async def voice_session(websocket: WebSocket):
             return
 
         session_id = first.get("session_id") or f"web-{int(started_at * 1000)}"
+        amount_owed = float(first.get("amount_owed", 1000.0))
+        debtor_phone = first.get("phone", "unknown")
+
         started_at = time.monotonic()
 
         # Create the call row and tag it with the browser session id (reuses call_sid column).
@@ -263,26 +259,6 @@ async def get_calls():
     """Retrieve all call logs for the dashboard."""
     calls = await get_all_calls()
     return {"calls": calls}
-
-
-@app.get("/api/config")
-async def read_config():
-    """Return the current runtime config."""
-    config = await get_config()
-    return config
-
-
-class ConfigUpdate(BaseModel):
-    key: str
-    value: str
-
-
-@app.put("/api/config")
-async def write_config(body: ConfigUpdate):
-    """Upsert a single config key."""
-    print(f"[DEBUG] Config update: {body.key} = {body.value}")
-    await set_config(body.key, body.value)
-    return {"key": body.key, "value": body.value}
 
 
 if __name__ == "__main__":

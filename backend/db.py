@@ -43,7 +43,12 @@ async def close_pool():
 # Call helpers
 # ---------------------------------------------------------------------------
 
-async def create_call(phone_number: str, amount_owed: float) -> int:
+async def create_call(
+    phone_number: str,
+    amount_owed: float,
+    customer_id: Optional[int] = None,
+    customer_name: Optional[str] = None,
+    ) -> int:
     """
     Insert a new call row when an outbound call is initiated.
     Returns the new call ID.
@@ -51,10 +56,10 @@ async def create_call(phone_number: str, amount_owed: float) -> int:
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
-            INSERT INTO calls (phone_number, amount_owed, status)
-            VALUES ($1, $2, 'initiated')
+            INSERT INTO calls (phone_number, amount_owed, status, customer_id, customer_name)
+            VALUES ($1, $2, 'initiated', $3, $4)
             RETURNING id
-        """, phone_number, amount_owed)
+        """, phone_number, amount_owed, customer_id, customer_name)
         return row['id']
 
 
@@ -131,7 +136,8 @@ async def get_all_calls() -> list[dict]:
             SELECT
                 id, call_sid, phone_number, status, outcome,
                 amount_owed, promise_date, promise_amount,
-                transcript, duration_seconds, initiated_at, completed_at
+                transcript, duration_seconds, initiated_at, completed_at,
+                customer_id, customer_name
             FROM calls
             ORDER BY initiated_at DESC
         """)

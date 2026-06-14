@@ -99,9 +99,29 @@ function CustomerForm({ initial, onSave, onCancel, error }) {
 }
 
 // ---------------------------------------------------------------------------
+// Call Modal — wraps VoiceSession for a specific customer
+// ---------------------------------------------------------------------------
+function CallModal({ customer, onClose }) {
+  const overlay = {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+  };
+  return (
+    <div style={overlay}>
+      <div style={{ width: 560, maxWidth: '95%' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <button className="btn btn-secondary" onClick={onClose}>Close</button>
+        </div>
+        <VoiceSession customerId={customer.id} customerName={customer.name} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Customer Table
 // ---------------------------------------------------------------------------
-function CustomerTable({ customers, onEdit, onDelete }) {
+function CustomerTable({ customers, onEdit, onDelete , onStartCall}) {
   return (
     <div className="card table-card">
       <table className="call-table">
@@ -132,7 +152,8 @@ function CustomerTable({ customers, onEdit, onDelete }) {
                   </span>
                 </td>
                 <td>
-                  <button className="btn btn-secondary" onClick={() => onEdit(c)}>Edit</button>
+                  <button className="btn btn-call" onClick={() => onStartCall(c)}>Start call</button>
+                  <button className="btn btn-secondary" style={{ marginLeft: 8 }} onClick={() => onEdit(c)}>Edit</button>
                   <button className="btn btn-secondary" style={{ marginLeft: 8 }} onClick={() => onDelete(c.id)}>Delete</button>
                 </td>
               </tr>
@@ -145,7 +166,7 @@ function CustomerTable({ customers, onEdit, onDelete }) {
 }
 
 // ---------------------------------------------------------------------------
-// Customers View (container — owns state + CRUD)
+// Customers View
 // ---------------------------------------------------------------------------
 function CustomersView() {
   const [customers, setCustomers] = useState([]);
@@ -154,6 +175,7 @@ function CustomersView() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);     // customer being edited, or null = create
   const [formError, setFormError] = useState(null);
+  const [callingCustomer, setCallingCustomer] = useState(null);
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -215,7 +237,16 @@ function CustomersView() {
       ) : error ? (
         <p className="error-text center-text">{error}</p>
       ) : (
-        <CustomerTable customers={customers} onEdit={openEdit} onDelete={handleDelete} />
+        <CustomerTable
+          customers={customers}
+          onEdit={openEdit}
+          onDelete={handleDelete}
+          onStartCall={setCallingCustomer}
+        />
+      )}
+
+      {callingCustomer && (
+        <CallModal customer={callingCustomer} onClose={() => setCallingCustomer(null)} />
       )}
 
       {formOpen && (
@@ -264,6 +295,7 @@ function CallTable({ calls }) {
       <table className="call-table">
         <thead>
           <tr>
+            <th>Customer</th>
             <th>Date</th>
             <th>Phone</th>
             <th>Duration</th>
@@ -274,7 +306,7 @@ function CallTable({ calls }) {
         </thead>
         <tbody>
           {calls.length === 0 ? (
-            <tr><td colSpan="6" className="no-data">No calls yet</td></tr>
+            <tr><td colSpan="7" className="no-data">No calls yet</td></tr>
           ) : (
             calls.map(call => (
               <React.Fragment key={call.id}>
@@ -282,6 +314,7 @@ function CallTable({ calls }) {
                   onClick={() => toggle(call.id)}
                   className={expandedRow === call.id ? 'row-expanded' : ''}
                 >
+                  <td>{call.customer_name}</td>
                   <td>{formatDate(call.initiated_at)}</td>
                   <td>{call.phone_number}</td>
                   <td>{formatDuration(call.duration_seconds)}</td>
@@ -298,7 +331,7 @@ function CallTable({ calls }) {
                 </tr>
                 {expandedRow === call.id && (
                   <tr className="transcript-row">
-                    <td colSpan="6">
+                    <td colSpan="7">
                       <div className="transcript-box">
                         <strong>Transcript</strong>
                         <p>{call.transcript || 'No transcript recorded.'}</p>
@@ -347,7 +380,7 @@ function App() {
   return (
     <div className="App">
       <header className="header">
-        <h1>IVR Dashboard</h1>
+        <h1>Dashboard</h1>
         <p className="subtitle">Promise-to-Pay Collection System</p>
       </header>
 
@@ -371,7 +404,6 @@ function App() {
           <CustomersView />
         ) : (
           <>
-            <VoiceSession onSessionComplete={fetchCalls} />
             {callsLoading ? (
               <p className="muted center-text">Loading calls…</p>
             ) : callsError ? (

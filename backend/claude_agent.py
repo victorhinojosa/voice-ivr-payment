@@ -105,9 +105,11 @@ async def extract_ptp(transcript: str, amount_owed: float) -> dict:
 AGENT_SYSTEM_PROMPT = """You are a professional, empathetic debt collections agent.
 
 Today's date is {today}.
+You are speaking with {customer_name}, who has an outstanding balance.
 Goal: obtain a Promise to Pay (PTP) for ${amount_owed:.2f}.
 
 Rules:
+- Address the customer by name when it feels natural — not in every line.
 - If the customer provides a timeframe (e.g., "tomorrow", "Friday", "end of the month"), 
   INTERPRET the date based on {today} and confirm it back to them naturally.
 - DO NOT ask for a "specific date" or "time" if the customer's intent is clear. 
@@ -120,7 +122,7 @@ Rules:
 Return strict JSON only: {{"reply": "...", "is_terminal": false}}"""
 
 
-async def agent_reply(history: list, amount_owed: float) -> dict:
+async def agent_reply(history: list, amount_owed: float, customer_name: str) -> dict:
     """
     Generate the next agent turn in a multi-turn PTP negotiation.
 
@@ -132,7 +134,7 @@ async def agent_reply(history: list, amount_owed: float) -> dict:
         dict with keys: reply (str), is_terminal (bool)
     """
     try:
-        system = AGENT_SYSTEM_PROMPT.format(amount_owed=amount_owed, today=date.today().isoformat())
+        system = AGENT_SYSTEM_PROMPT.format(amount_owed=amount_owed, today=date.today().isoformat(), customer_name=customer_name)
 
         # Convert history to Anthropic message format.
         # Skip leading agent turns — the API requires first message to be "user".

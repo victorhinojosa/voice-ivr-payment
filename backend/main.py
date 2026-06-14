@@ -15,6 +15,7 @@ from db import (
 )
 from claude_agent import extract_ptp, agent_reply
 from customers.router import router as customers_router
+from customers.repository import get_customer_by_id
 
 # In-memory conversation state: session_id → list of {"role": "agent"|"customer", "text": str}
 conversations: dict[str, list] = {}
@@ -131,20 +132,38 @@ async def voice_session(websocket: WebSocket):
             return
 
         session_id = first.get("session_id") or f"web-{int(started_at * 1000)}"
-        amount_owed = float(first.get("amount_owed", 1000.0))
-        debtor_phone = first.get("phone", "unknown")
+
+        # Identity and debt amount come from the customer record — the source of truth.
+        customer_id = first.get("customer_id")
+        if customer_id is None:
+            await websocket.send_json({"type": "error", "message": "customer_id is required"})
+            return
+
+        customer = await get_customer_by_id(int(customer_id))
+        if customer is None:
+            await websocket.send_json({"type": "error", "message": "customer not found"})
+            return
+
+        amount_owed = float(customer["amount_owed"])
+        debtor_phone = customer["phone"]
+        customer_name = customer["name"]
 
         started_at = time.monotonic()
 
-        # Create the call row and tag it with the browser session id (reuses call_sid column).
-        call_id = await create_call(phone_number=debtor_phone, amount_owed=amount_owed)
+        # Create the call row, linked to the customer and snapshotting their name.
+        call_id = await create_call(
+            phone_number=debtor_phone,
+            amount_owed=amount_owed,
+            customer_id=customer["id"],
+            customer_name=customer_name,
+        )
         await update_call_sid(call_id, session_id)
-        print(f"[DEBUG] Created call id={call_id}, session_id={session_id}, amount_owed={amount_owed}")
+        print(f"[DEBUG] Created call id={call_id}, customer_id={customer['id']}, amount_owed={amount_owed}")
 
         # Seed the conversation with the agent's opening line and speak it.
         opening = (
-            f"Hello, this is a courtesy call regarding your outstanding balance of "
-            f"${amount_owed:.2f}. When would you be able to make a payment?"
+            f"Hello {customer_name}, this is a courtesy call regarding your outstanding "
+            f"balance of ${amount_owed:.2f}. When would you be able to make a payment?"
         )
         conversations[session_id] = [{"role": "agent", "text": opening}]
         await websocket.send_json({"type": "agent", "text": opening, "is_terminal": False})
@@ -192,7 +211,7 @@ async def voice_session(websocket: WebSocket):
                 reply_text = "We weren't able to confirm a date. Someone will reach out to you soon. Goodbye."
                 is_terminal = True
             else:
-                ar = await agent_reply(history, amount_owed)
+                ar = await agent_reply(history, amount_owed, customer_name)
                 reply_text = ar["reply"]
                 is_terminal = ar["is_terminal"]
 

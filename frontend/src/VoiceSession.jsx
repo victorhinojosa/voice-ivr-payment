@@ -25,7 +25,7 @@ function genSessionId() {
 // VoiceSession — runs a browser-based negotiation entirely client-side for
 // speech (STT/TTS) and exchanges plain text with the backend over a WebSocket.
 // ---------------------------------------------------------------------------
-export default function VoiceSession({ onSessionComplete }) {
+export default function VoiceSession({ onSessionComplete, customerId, customerName }) {
   // status: 'idle' | 'connecting' | 'speaking' | 'listening' | 'thinking' | 'done' | 'error'
   const [status, setStatus] = useState('idle');
   const [turns, setTurns] = useState([]); // {role: 'agent'|'customer', text}
@@ -146,7 +146,7 @@ export default function VoiceSession({ onSessionComplete }) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'start', session_id: sessionId }));
+      ws.send(JSON.stringify({ type: 'start', session_id: sessionId, customer_id: customerId, customer_name: customerName }));
     };
 
     ws.onmessage = (event) => {
@@ -183,7 +183,7 @@ export default function VoiceSession({ onSessionComplete }) {
         setStatus(prev => (prev === 'error' ? 'error' : 'done'));
       }
     };
-  }, [speak, stopRecognition, cleanup, onSessionComplete]);
+  }, [speak, stopRecognition, cleanup, onSessionComplete, customerId]);
 
   // User ended the session early — tell the server and tear down.
   const handleEnd = useCallback(() => {
@@ -215,7 +215,9 @@ export default function VoiceSession({ onSessionComplete }) {
     <div className="card voice-session">
       <div className="voice-header">
         <div>
-          <h2 className="voice-title">Voice Negotiation</h2>
+          <h2 className="voice-title">
+            {customerName ? `Negotiation — ${customerName}` : 'Voice Negotiation'}
+          </h2>
           <span className={`voice-status voice-status-${status}`}>{statusLabel}</span>
         </div>
         <div className="voice-actions">

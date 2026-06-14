@@ -14,6 +14,7 @@ from db import (
     get_all_calls,
 )
 from claude_agent import extract_ptp, agent_reply
+from customers.router import router as customers_router
 
 # In-memory conversation state: session_id → list of {"role": "agent"|"customer", "text": str}
 conversations: dict[str, list] = {}
@@ -37,6 +38,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Voice IVR PoC", lifespan=lifespan)
+
+app.include_router(customers_router)
 
 app.add_middleware(
     CORSMiddleware,

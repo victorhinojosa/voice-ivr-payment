@@ -39,68 +39,6 @@ async def close_pool():
         _pool = None
 
 
-async def init_db():
-    """Initialize database tables if they don't exist."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-
-        # calls: one row per call attempt
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS calls (
-                id              SERIAL PRIMARY KEY,
-                call_sid        TEXT,                        -- Twilio call SID for debugging
-                phone_number    TEXT NOT NULL,               -- number that was called
-                status          TEXT DEFAULT 'initiated',    -- initiated | completed | no_answer
-                outcome         TEXT,                        -- promise_made | refused | no_commitment
-                amount_owed     NUMERIC(10, 2),              -- debt amount presented during the call
-                promise_date    DATE,                        -- date customer committed to pay (null if none)
-                promise_amount  NUMERIC(10, 2),              -- amount they committed to (null if none)
-                transcript      TEXT,                        -- full conversation text
-                duration_seconds INTEGER,                    -- how long the call lasted
-                initiated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                completed_at    TIMESTAMP
-            )
-        """)
-
-        # config: editable key-value pairs that drive the call
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS config (
-                key     TEXT PRIMARY KEY,
-                value   TEXT NOT NULL
-            )
-        """)
-
-        # Seed default config values if table is empty
-        await conn.execute("""
-            INSERT INTO config (key, value) VALUES
-                ('debtor_phone',  '+10000000000'),
-                ('amount_owed',   '1000.00')
-            ON CONFLICT (key) DO NOTHING
-        """)
-
-
-# ---------------------------------------------------------------------------
-# Config helpers
-# ---------------------------------------------------------------------------
-
-async def get_config() -> dict:
-    """Return all config values as a plain dict."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT key, value FROM config")
-        return {row['key']: row['value'] for row in rows}
-
-
-async def set_config(key: str, value: str) -> None:
-    """Upsert a single config value."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO config (key, value) VALUES ($1, $2)
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-        """, key, value)
-
-
 # ---------------------------------------------------------------------------
 # Call helpers
 # ---------------------------------------------------------------------------

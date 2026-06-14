@@ -183,7 +183,7 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
         setStatus(prev => (prev === 'error' ? 'error' : 'done'));
       }
     };
-  }, [speak, stopRecognition, cleanup, onSessionComplete, customerId]);
+  }, [speak, stopRecognition, cleanup, onSessionComplete, customerId, customerName]);
 
   // User ended the session early — tell the server and tear down.
   const handleEnd = useCallback(() => {

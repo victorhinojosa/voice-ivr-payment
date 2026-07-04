@@ -5,6 +5,7 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
 ## Features
 
 - **In-browser voice session** — the agent speaks and the user replies through their microphone, entirely in the browser (no telephony provider)
+- **Natural voice + automatic turn detection** — ElevenLabs TTS for realistic speech, ElevenLabs Scribe for transcription, and client-side VAD (Silero, via ONNX Runtime Web) to detect when the user starts/stops talking
 - **Multi-turn AI negotiation** — Claude handles the full conversation, offers plans, and adapts to responses
 - **Promise-to-Pay extraction** — after the session, Claude analyzes the transcript to extract outcome, date, and amount
 - **Real-time dashboard** — monitor sessions, outcomes, and full transcripts in the browser
@@ -13,17 +14,16 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
 ## Tech Stack
 
 
-| Layer            | Technology                                                       |
-| ---------------- | ---------------------------------------------------------------- |
-| Backend          | Python FastAPI (async)                                           |
-| Voice transport  | WebSocket (`/ws/session`)                                        |
-| Speech (STT/TTS) | Browser Web Speech API (`SpeechRecognition` + `SpeechSynthesis`) |
-| AI Agent         | Claude Haiku (Anthropic)                                         |
-| Database         | Supabase (asyncpg)                                               |
-| Frontend         | React 18                                                         |
-
-
-> **Browser support:** the Web Speech API for speech *recognition* is currently supported in Chromium-based browsers (**Chrome** and **Edge**). Firefox and Safari do not reliably support `SpeechRecognition`. 
+| Layer            | Technology                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------|
+| Backend          | Python FastAPI (async)                                                              |
+| Voice transport  | WebSocket (`/ws/session`)                                                           |
+| Speech (TTS)     | ElevenLabs (`eleven_flash_v2_5`)                                                    |
+| Speech (STT)     | ElevenLabs Scribe (`scribe_v1`)                                                     |
+| Turn detection   | Client-side VAD — Silero model via `@ricky0123/vad-web` + ONNX Runtime Web (WASM)   |
+| AI Agent         | Claude Haiku (Anthropic)                                                            |
+| Database         | Supabase (asyncpg)                                                                  |
+| Frontend         | React 18                                                                            |
 
 ## How It Works
 
@@ -34,15 +34,16 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
         ↓
 2. Browser opens a WebSocket to the backend and sends {type: "start"}
         ↓
-3. Backend creates a DB record (calls table) and returns the agent's opening line
-   "Hello, this is a courtesy call regarding your outstanding balance of $X.
-    When would you be able to make a payment?"
-   → browser speaks it via SpeechSynthesis (TTS)
+3. Backend creates a DB record (calls table) and returns the agent's opening 
+   line as text + ElevenLabs-generated audio (base64)
+   → browser plays the audio
         ↓
-4. Browser listens via SpeechRecognition (STT) and sends the recognized
-   text to the backend: {type: "user", text: "..."}
-        ↓
-5. Claude (agent_reply) generates the next response
+4. Client-side VAD detects the user speaking and, once they stop, captures
+   the audio, encodes it as WAV, and sends it to the backend:
+   {type: "user_audio", audio: "<base64 WAV>"}
+   ↓
+5. Backend transcribes the audio via ElevenLabs Scribe, then Claude
+   (agent_reply) generates the next response
    - If customer commits with a date → set is_terminal: true
    - If customer commits but no date → ask for a date
    - If unclear → ask a clarifying question
@@ -75,7 +76,7 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
 ```bash
 cd backend
 python -m venv venv
-.\venv\Scripts\Activate.ps1   # Windows
+.\venv\Scripts\Activate.ps1  # Windows
 source venv/bin/activate       # Mac/Linux
 pip install -r requirements.txt
 ```
@@ -87,6 +88,8 @@ cd frontend
 npm install
 ```
 
+> Voice activity detection requires model/runtime files to be served from `frontend/public/` (Silero ONNX model, ONNX Runtime WASM binaries, VAD worklet). These are committed to the repo directly — see `frontend/public/`.
+
 ### 2. Configure environment
 
 Copy `.env.example` to `.env` and fill in your credentials:
@@ -97,6 +100,8 @@ cp .env.example .env
 
 ```env
 ANTHROPIC_API_KEY=your_anthropic_api_key
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
+ELEVENLABS_VOICE_ID=your_chosen_voice_id
 
 DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require
 ```
@@ -191,16 +196,18 @@ voice-ivr-payment/
 ├── backend/
 │   ├── main.py            # FastAPI app, /ws/session voice transport, session orchestration
 │   ├── claude_agent.py    # Claude AI — agent_reply() and extract_ptp()
+│   ├── voice_io.py        # ElevenLabs TTS (synthesize_speech) and STT (transcribe_speech)
 │   ├── db.py              # PostgreSQL operations
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
+│   ├── public/             # Silero VAD model, ONNX Runtime WASM, VAD worklet (static assets)
 │   ├── src/
 │   │   ├── App.jsx          # Dashboard UI
-│   │   ├── VoiceSession.jsx # Browser voice session (Web Speech API + WebSocket)
+│   │   ├── VoiceSession.jsx # Browser voice session (VAD + WebSocket + ElevenLabs audio playback)
+│   │   ├── wavEncoder.js    # Encodes raw VAD audio (Float32) into WAV for upload
 │   │   └── App.css
 │   └── package.json
-├── docker-compose.yml
 ├── .env.example
 └── README.md
 ```

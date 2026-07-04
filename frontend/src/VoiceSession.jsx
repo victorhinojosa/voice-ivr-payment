@@ -1,4 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { MicVAD } from '@ricky0123/vad-web';
+import { encodeWav } from './wavEncoder';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -31,44 +33,40 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
   const [error, setError] = useState(null);
 
   const wsRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  const vadRef = useRef(null);
   const finishedRef = useRef(false);
 
-  const stopListening = useCallback(() => {
-    const rec = mediaRecorderRef.current;
-    if (rec && rec.state !== 'inactive') rec.stop();
+  const ensureVAD = useCallback(async () => {
+    if (vadRef.current) return vadRef.current;
+    const vad = await MicVAD.new({
+      baseAssetPath: "/",
+      onnxWASMBasePath: "/",
+      onSpeechStart: () => setStatus('listening'),
+      onSpeechEnd: async (audioFloat32) => {
+        vad.pause();
+        const ws = wsRef.current;
+        if (finishedRef.current || !ws || ws.readyState !== WebSocket.OPEN) return;
+        const wavBlob = encodeWav(audioFloat32);
+        const base64 = await blobToBase64(wavBlob);
+        setStatus('thinking');
+        ws.send(JSON.stringify({ type: 'user_audio', audio: base64 }));
+      },
+    });
+    vadRef.current = vad;
+    return vad;
   }, []);
 
   const startListening = useCallback(async () => {
     if (finishedRef.current) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      audioChunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const ws = wsRef.current;
-        if (finishedRef.current || !ws || ws.readyState !== WebSocket.OPEN) return;
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const base64 = await blobToBase64(blob);
-        setStatus('thinking');
-        ws.send(JSON.stringify({ type: 'user_audio', audio: base64 }));
-      };
-
-      mediaRecorderRef.current = recorder;
-      recorder.start();
+      const vad = await ensureVAD();
+      vad.start();
       setStatus('listening');
     } catch (e) {
       setError('Microphone access denied or unavailable.');
       setStatus('error');
     }
-  }, []);
+  }, [ensureVAD]);
 
   const speak = useCallback((text, audioB64, isTerminal) => {
     setStatus('speaking');
@@ -86,11 +84,11 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
   }, [startListening]);
 
   const cleanup = useCallback(() => {
-    stopListening();
+    if (vadRef.current) { try { vadRef.current.pause(); } catch (e) {} }
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) { try { ws.close(); } catch (e) {} }
     wsRef.current = null;
-  }, [stopListening]);
+  }, []);
 
   const start = useCallback(() => {
     if (!mediaSupported) {
@@ -123,7 +121,6 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
         setTurns(prev => [...prev, { role: 'customer', text: msg.text }]);
       } else if (msg.type === 'complete') {
         finishedRef.current = true;
-        stopListening();
         setStatus('done');
         if (onSessionComplete) onSessionComplete();
       } else if (msg.type === 'error') {
@@ -143,11 +140,10 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
     ws.onclose = () => {
       if (!finishedRef.current) {
         finishedRef.current = true;
-        stopListening();
         setStatus(prev => (prev === 'error' ? 'error' : 'done'));
       }
     };
-  }, [speak, stopListening, cleanup, onSessionComplete, customerId, customerName]);
+  }, [speak, cleanup, onSessionComplete, customerId, customerName]);
 
 
   const handleEnd = useCallback(() => {
@@ -158,11 +154,14 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
     setStatus('done');
   }, [cleanup]);
 
-  useEffect(() => () => cleanup(), [cleanup]);
+  useEffect(() => () => {
+    cleanup();
+    if (vadRef.current) { try { vadRef.current.destroy(); } catch (e) {} vadRef.current = null; }
+  }, [cleanup]);
 
   const statusLabel = {
     idle: 'Ready', connecting: 'Connecting…', speaking: 'Agent speaking…',
-    listening: 'Listening — tap Done when finished', thinking: 'Thinking…',
+    listening: 'Listening...', thinking: 'Thinking…',
     done: 'Session complete', error: 'Error',
   }[status];
 
@@ -180,9 +179,6 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
             <button className="btn btn-call" onClick={start} disabled={!mediaSupported}>
               {status === 'done' ? 'Start New Session' : 'Start Negotiation'}
             </button>
-          )}
-          {status === 'listening' && (
-            <button className="btn btn-call" onClick={stopListening}>Done Speaking</button>
           )}
           {active && (
             <button className="btn btn-secondary" onClick={handleEnd}>End</button>

@@ -1,13 +1,12 @@
+import os
+import time
+import base64
+import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
-import os
-import time
 from dotenv import load_dotenv
-
-import json
-
 from db import (
     close_pool,
     create_call, update_call_sid, complete_call,
@@ -16,6 +15,7 @@ from db import (
 from claude_agent import extract_ptp, agent_reply
 from customers.router import router as customers_router
 from customers.repository import get_customer_by_id
+from voice_io import synthesize_speech, transcribe_speech
 
 # In-memory conversation state: session_id → list of {"role": "agent"|"customer", "text": str}
 conversations: dict[str, list] = {}
@@ -74,6 +74,16 @@ async def root():
 #     {"type": "complete", "outcome": "...", "promise_date": "...", "promise_amount": 0.0}
 #     {"type": "error",    "message": "..."}
 # ---------------------------------------------------------------------------
+
+async def _send_agent_turn(websocket: WebSocket, text: str, is_terminal: bool):
+    audio_bytes = await synthesize_speech(text)
+    await websocket.send_json({
+        "type": "agent",
+        "text": text,
+        "audio": base64.b64encode(audio_bytes).decode(),
+        "is_terminal": is_terminal,
+    })
+
 
 async def _finalize_session(session_id: str, call_id, amount_owed: float, started_at: float):
     """
@@ -166,7 +176,7 @@ async def voice_session(websocket: WebSocket):
             f"balance of ${amount_owed:.2f}. When would you be able to make a payment?"
         )
         conversations[session_id] = [{"role": "agent", "text": opening}]
-        await websocket.send_json({"type": "agent", "text": opening, "is_terminal": False})
+        await _send_agent_turn(websocket, opening, False)
 
         # Turn loop.
         while True:
@@ -177,10 +187,13 @@ async def voice_session(websocket: WebSocket):
                 print(f"[DEBUG] Client ended session {session_id}")
                 break
 
-            if msg_type != "user":
+            if msg_type != "user_audio":
                 continue
-
-            speech = (msg.get("text") or "").strip()
+            audio_b64 = msg.get("audio")
+            if not audio_b64:
+                continue
+            speech = await transcribe_speech(base64.b64decode(audio_b64))
+            
             history = conversations.get(session_id, [])
 
             if not speech:
@@ -190,8 +203,8 @@ async def voice_session(websocket: WebSocket):
                 conversations[session_id] = history
                 ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
                 finalized = True
-                await websocket.send_json({"type": "agent", "text": reply_text, "is_terminal": True})
-                await websocket.send_json({
+                await _send_agent_turn(websocket, reply_text, is_terminal_value)
+                await _send_agent_turn({
                     "type": "complete",
                     "outcome": ptp["outcome"],
                     "promise_date": ptp["promise_date"],

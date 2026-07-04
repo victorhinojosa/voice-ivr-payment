@@ -75,7 +75,7 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
 ```bash
 cd backend
 python -m venv venv
-.\venv\Scripts\Activate.ps1   # Windows
+.\venv\Scripts\Activate.ps1  # Windows
 source venv/bin/activate       # Mac/Linux
 pip install -r requirements.txt
 ```

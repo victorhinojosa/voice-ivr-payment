@@ -195,6 +195,11 @@ async def voice_session(websocket: WebSocket):
             speech = await transcribe_speech(base64.b64decode(audio_b64))
             
             history = conversations.get(session_id, [])
+            history.append({"role": "customer", "text": speech})
+            conversations[session_id] = history
+
+            # echo back so the frontend can render it
+            await websocket.send_json({"type": "user", "text": speech})
 
             if not speech:
                 # No usable speech — close out as no_commitment (mirrors empty-speech path).
@@ -203,7 +208,7 @@ async def voice_session(websocket: WebSocket):
                 conversations[session_id] = history
                 ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
                 finalized = True
-                await _send_agent_turn(websocket, reply_text, is_terminal_value)
+                await _send_agent_turn(websocket, reply_text, True)
                 await _send_agent_turn({
                     "type": "complete",
                     "outcome": ptp["outcome"],
@@ -213,7 +218,6 @@ async def voice_session(websocket: WebSocket):
                 break
 
             # Append the customer turn.
-            history.append({"role": "customer", "text": speech})
             conversations[session_id] = history
 
             # Max-turns guard.
@@ -232,7 +236,7 @@ async def voice_session(websocket: WebSocket):
             conversations[session_id] = history
 
             if not is_terminal:
-                await websocket.send_json({"type": "agent", "text": reply_text, "is_terminal": False})
+                await _send_agent_turn(websocket, reply_text, False)
                 continue
 
             # Terminal turn — extract PTP and persist.
@@ -250,8 +254,8 @@ async def voice_session(websocket: WebSocket):
             else:
                 closing = reply_text
 
-            await websocket.send_json({"type": "agent", "text": closing, "is_terminal": True})
-            await websocket.send_json({
+            await _send_agent_turn(websocket, closing, True)
+            await _send_agent_turn({
                 "type": "complete",
                 "outcome": ptp["outcome"],
                 "promise_date": ptp["promise_date"],

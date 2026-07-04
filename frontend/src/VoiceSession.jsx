@@ -75,8 +75,14 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
     const audio = new Audio(`data:audio/mpeg;base64,${audioB64}`);
     const advance = () => { if (!isTerminal && !finishedRef.current) startListening(); };
     audio.onended = advance;
-    audio.onerror = advance;
-    audio.play().catch(advance);
+    audio.onerror = (e) => {
+      console.error('Audio playback error:', e, audio.error);
+      advance();
+    };
+    audio.play().catch((err) => {
+      console.error('Audio play() rejected:', err.name, err.message);
+      advance();
+    });
   }, [startListening]);
 
   const cleanup = useCallback(() => {
@@ -110,8 +116,11 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
       try { msg = JSON.parse(event.data); } catch (e) { return; }
 
       if (msg.type === 'agent') {
+        console.log('[DEBUG] agent msg audio length:', msg.audio ? msg.audio.length : 'MISSING/EMPTY');
         setTurns(prev => [...prev, { role: 'agent', text: msg.text }]);
         speak(msg.text, msg.audio, !!msg.is_terminal);
+      } else if (msg.type === 'user') {
+        setTurns(prev => [...prev, { role: 'customer', text: msg.text }]);
       } else if (msg.type === 'complete') {
         finishedRef.current = true;
         stopListening();

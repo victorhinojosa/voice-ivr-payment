@@ -21,7 +21,9 @@ async def synthesize_speech(text: str) -> bytes:
         output_format="mp3_44100_128",
     )
     chunks = [chunk async for chunk in audio_stream]
-    return b"".join(chunks)
+    audio_bytes = b"".join(chunks)
+    print(f"[DEBUG] synthesize_speech: text_len={len(text)}, audio_bytes={len(audio_bytes)}")
+    return audio_bytes
 
 
 async def transcribe_speech(audio_bytes: bytes) -> str:

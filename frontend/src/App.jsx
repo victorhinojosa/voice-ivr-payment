@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
+import { Users, Phone } from 'lucide-react';
 import { CallHistoryView } from './components/call-history-view';
 import { AppSidebar } from './components/app-sidebar';
 import { CustomersView } from './components/customers-view';
 import { CustomerDialog } from './components/customer-dialog';
 import { LiveCallDialog } from './components/live-call-dialog';
-import { generateRandomPhone } from './lib/utils';
+import { generateRandomPhone, cn } from './lib/utils';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 // ---------------------------------------------------------------------------
 // Customers Page
 // ---------------------------------------------------------------------------
-function CustomersPage() {
+function CustomersPage({ onCountChange }) {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,14 +27,16 @@ function CustomersPage() {
     try {
       const r = await fetch(`${API_URL}/api/customers`);
       if (!r.ok) throw new Error();
-      setCustomers(await r.json());
+      const data = await r.json();
+      setCustomers(data);
+      onCountChange?.(data.length);
       setError(null);
     } catch {
       setError('Failed to load customers.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onCountChange]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
@@ -101,6 +104,7 @@ function App() {
   const [callsLoading, setCallsLoading] = useState(true);
   const [callsError, setCallsError] = useState(null);
   const [view, setView] = useState('customers'); // 'customers' | 'calls'
+  const [customersCount, setCustomersCount] = useState(0);
 
   const fetchCalls = useCallback(async () => {
     try {
@@ -126,41 +130,64 @@ function App() {
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
       <div className="flex-1 p-6 lg:p-8">
-        <header className="header">
-          <h1>Dashboard</h1>
-          <p className="subtitle">Promise-to-Pay Collection System</p>
-        </header>
 
-        <div className="container">
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-            <button
-              className={`btn ${view === 'customers' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setView('customers')}
-            >
-              Customers
-            </button>
-            <button
-              className={`btn ${view === 'calls' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setView('calls')}
-            >
-              Call History
-            </button>
+        {/* Header */}
+        <div className="border-b border-border pb-4 mb-6">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold text-foreground">Collections Dashboard</h1>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/12 px-2.5 py-0.5 text-xs font-medium text-success">
+              <span className="size-1.5 rounded-full bg-success" />
+              Agent online
+            </span>
           </div>
-
-          {view === 'customers' ? (
-            <CustomersPage />
-          ) : (
-            <>
-              {callsLoading ? (
-                <p className="muted center-text">Loading calls…</p>
-              ) : callsError ? (
-                <p className="error-text center-text">{callsError}</p>
-              ) : (
-                <CallHistoryView calls={calls} />
-              )}
-            </>
-          )}
+          <p className="text-sm text-muted-foreground mt-1">
+            Promise-to-pay outreach, fully automated
+          </p>
         </div>
+
+        {/* Tabs */}
+        <div className="flex gap-6 border-b border-border mb-6">
+          <button
+            onClick={() => setView('customers')}
+            className={cn(
+              'flex items-center gap-2 pb-3 text-sm font-medium border-b-2 -mb-px transition-colors',
+              view === 'customers'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Users className="size-4" />
+            Customers
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{customersCount}</span>
+          </button>
+          <button
+            onClick={() => setView('calls')}
+            className={cn(
+              'flex items-center gap-2 pb-3 text-sm font-medium border-b-2 -mb-px transition-colors',
+              view === 'calls'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Phone className="size-4" />
+            Call History
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{calls.length}</span>
+          </button>
+        </div>
+
+        {view === 'customers' ? (
+          <CustomersPage onCountChange={setCustomersCount} />
+        ) : (
+          <>
+            {callsLoading ? (
+              <p className="muted center-text">Loading calls…</p>
+            ) : callsError ? (
+              <p className="error-text center-text">{callsError}</p>
+            ) : (
+              <CallHistoryView calls={calls} />
+            )}
+          </>
+        )}
       </div>
     </div>
   );

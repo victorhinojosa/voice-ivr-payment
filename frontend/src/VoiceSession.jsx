@@ -143,7 +143,7 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
         setStatus(prev => (prev === 'error' ? 'error' : 'done'));
       }
     };
-  }, [speak, stopRecognition, cleanup, onSessionComplete, customerName]);
+  }, [speak, cleanup, onSessionComplete, customerId, customerName]);
 
   const handleEnd = useCallback(() => {
     finishedRef.current = true;

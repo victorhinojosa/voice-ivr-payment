@@ -1,44 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import VoiceSession from './VoiceSession';
+import { CallHistoryView } from './components/call-history-view';
+import { formatDate, formatDuration, formatCurrency } from './lib/utils';
+import { AppSidebar } from './components/app-sidebar';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-const OUTCOME_COLORS = {
-  promise_made:  '#10b981',
-  refused:       '#ef4444',
-  no_commitment: '#6b7280',
-  initiated:     '#3b82f6',
-  no_answer:     '#f97316',
-};
-
-const OUTCOME_LABELS = {
-  promise_made:  'Promise Made',
-  refused:       'Refused',
-  no_commitment: 'No Commitment',
-  initiated:     'Initiated',
-  no_answer:     'No Answer',
-};
-
-function formatDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
-
-function formatDuration(seconds) {
-  if (seconds == null) return '—';
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-function formatCurrency(amount) {
-  if (amount == null) return '—';
-  return `$${parseFloat(amount).toFixed(2)}`;
-}
 
 // ---------------------------------------------------------------------------
 // Customer Form (modal — used for both create and edit)
@@ -264,89 +231,11 @@ function CustomersView() {
 // ---------------------------------------------------------------------------
 // Stats Bar
 // ---------------------------------------------------------------------------
-function StatsBar({ calls }) {
-  const stats = [
-    { label: 'Total Calls',    value: calls.length },
-    { label: 'Promises Made',  value: calls.filter(c => c.outcome === 'promise_made').length },
-    { label: 'Refused',        value: calls.filter(c => c.outcome === 'refused').length },
-    { label: 'No Commitment',  value: calls.filter(c => c.outcome === 'no_commitment').length },
-  ];
-  return (
-    <div className="stats-bar">
-      {stats.map(s => (
-        <div className="stat-tile" key={s.label}>
-          <div className="stat-value">{s.value}</div>
-          <div className="stat-label">{s.label}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
+
 
 // ---------------------------------------------------------------------------
 // Call History Table
 // ---------------------------------------------------------------------------
-function CallTable({ calls }) {
-  const [expandedRow, setExpandedRow] = useState(null);
-  const toggle = (id) => setExpandedRow(prev => prev === id ? null : id);
-
-  return (
-    <div className="card table-card">
-      <table className="call-table">
-        <thead>
-          <tr>
-            <th>Customer</th>
-            <th>Date</th>
-            <th>Phone</th>
-            <th>Duration</th>
-            <th>Outcome</th>
-            <th>Promise Date</th>
-            <th>Promise Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {calls.length === 0 ? (
-            <tr><td colSpan="7" className="no-data">No calls yet</td></tr>
-          ) : (
-            calls.map(call => (
-              <React.Fragment key={call.id}>
-                <tr
-                  onClick={() => toggle(call.id)}
-                  className={expandedRow === call.id ? 'row-expanded' : ''}
-                >
-                  <td>{call.customer_name}</td>
-                  <td>{formatDate(call.initiated_at)}</td>
-                  <td>{call.phone_number}</td>
-                  <td>{formatDuration(call.duration_seconds)}</td>
-                  <td>
-                    <span
-                      className="outcome-badge"
-                      style={{ backgroundColor: OUTCOME_COLORS[call.outcome] || OUTCOME_COLORS[call.status] || '#6b7280' }}
-                    >
-                      {OUTCOME_LABELS[call.outcome] || OUTCOME_LABELS[call.status] || call.outcome || call.status || '—'}
-                    </span>
-                  </td>
-                  <td>{call.promise_date || '—'}</td>
-                  <td>{formatCurrency(call.promise_amount)}</td>
-                </tr>
-                {expandedRow === call.id && (
-                  <tr className="transcript-row">
-                    <td colSpan="7">
-                      <div className="transcript-box">
-                        <strong>Transcript</strong>
-                        <p>{call.transcript || 'No transcript recorded.'}</p>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // App
@@ -378,44 +267,45 @@ function App() {
   }, [fetchCalls]);
 
   return (
-    <div className="App">
-      <header className="header">
-        <h1>Dashboard</h1>
-        <p className="subtitle">Promise-to-Pay Collection System</p>
-      </header>
+    <div className="flex min-h-screen bg-background">
+      
+      <AppSidebar />
+      <div className="flex-1 p-6 lg:p-8">
+        <header className="header">
+          <h1>Dashboard</h1>
+          <p className="subtitle">Promise-to-Pay Collection System</p>
+        </header>
 
-      <div className="container">
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-          <button
-            className={`btn ${view === 'customers' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setView('customers')}
-          >
-            Customers
-          </button>
-          <button
-            className={`btn ${view === 'calls' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setView('calls')}
-          >
-            Call History
-          </button>
+        <div className="container">
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+            <button
+              className={`btn ${view === 'customers' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setView('customers')}
+            >
+              Customers
+            </button>
+            <button
+              className={`btn ${view === 'calls' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setView('calls')}
+            >
+              Call History
+            </button>
+          </div>
+
+          {view === 'customers' ? (
+            <CustomersView />
+          ) : (
+            <>
+              {callsLoading ? (
+                <p className="muted center-text">Loading calls…</p>
+              ) : callsError ? (
+                <p className="error-text center-text">{callsError}</p>
+              ) : (
+                <CallHistoryView calls={calls} />
+              )}
+            </>
+          )}
         </div>
-
-        {view === 'customers' ? (
-          <CustomersView />
-        ) : (
-          <>
-            {callsLoading ? (
-              <p className="muted center-text">Loading calls…</p>
-            ) : callsError ? (
-              <p className="error-text center-text">{callsError}</p>
-            ) : (
-              <>
-                <StatsBar calls={calls} />
-                <CallTable calls={calls} />
-              </>
-            )}
-          </>
-        )}
       </div>
     </div>
   );

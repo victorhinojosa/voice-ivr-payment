@@ -208,7 +208,6 @@ voice-ivr-payment/
 │   │   ├── wavEncoder.js    # Encodes raw VAD audio (Float32) into WAV for upload
 │   │   └── App.css
 │   └── package.json
-├── docker-compose.yml
 ├── .env.example
 └── README.md
 ```

@@ -1,146 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
-import VoiceSession from './VoiceSession';
 import { CallHistoryView } from './components/call-history-view';
-import { formatDate, formatDuration, formatCurrency } from './lib/utils';
 import { AppSidebar } from './components/app-sidebar';
+import { CustomersView } from './components/customers-view';
+import { CustomerDialog } from './components/customer-dialog';
+import { LiveCallDialog } from './components/live-call-dialog';
+import { generateRandomPhone } from './lib/utils';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 // ---------------------------------------------------------------------------
-// Customer Form (modal — used for both create and edit)
+// Customers Page
 // ---------------------------------------------------------------------------
-function CustomerForm({ initial, onSave, onCancel, error }) {
-  const [name, setName] = useState(initial?.name || '');
-  const [phone, setPhone] = useState(initial?.phone || '');
-  const [amountOwed, setAmountOwed] = useState(initial?.amount_owed ?? '');
-  const [saving, setSaving] = useState(false);
-
-  const isEdit = initial != null;
-
-  const submit = async () => {
-    if (!name.trim() || !phone.trim()) return;
-    setSaving(true);
-    await onSave({
-      name: name.trim(),
-      phone: phone.trim(),
-      amount_owed: parseFloat(amountOwed) || 0
-    });
-    setSaving(false);
-  };
-
-  const overlay = {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-  };
-
-  return (
-    <div style={overlay} onClick={onCancel}>
-      <div className="card" style={{ width: 400, maxWidth: '90%' }} onClick={e => e.stopPropagation()}>
-        <h3 style={{ marginTop: 0 }}>{isEdit ? 'Edit Customer' : 'New Customer'}</h3>
-
-        <div className="field-group">
-          <label>Name</label>
-          <input value={name} onChange={e => setName(e.target.value)} />
-        </div>
-        <div className="field-group">
-          <label>Phone</label>
-          <input value={phone} onChange={e => setPhone(e.target.value)} />
-        </div>
-        <div className="field-group">
-          <label>Amount Owed</label>
-          <input type="number" step="0.01" value={amountOwed} onChange={e => setAmountOwed(e.target.value)} />
-        </div>
-
-        {error && <p className="error-text">{error}</p>}
-
-        <div className="control-actions">
-          <button className="btn btn-secondary" onClick={onCancel} disabled={saving}>Cancel</button>
-          <button className="btn btn-primary" onClick={submit} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Call Modal — wraps VoiceSession for a specific customer
-// ---------------------------------------------------------------------------
-function CallModal({ customer, onClose }) {
-  const overlay = {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-  };
-  return (
-    <div style={overlay}>
-      <div style={{ width: 560, maxWidth: '95%' }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-          <button className="btn btn-secondary" onClick={onClose}>Close</button>
-        </div>
-        <VoiceSession customerId={customer.id} customerName={customer.name} />
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Customer Table
-// ---------------------------------------------------------------------------
-function CustomerTable({ customers, onEdit, onDelete , onStartCall}) {
-  return (
-    <div className="card table-card">
-      <table className="call-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Phone</th>
-            <th>Amount Owed</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {customers.length === 0 ? (
-            <tr><td colSpan="5" className="no-data">No customers yet</td></tr>
-          ) : (
-            customers.map(c => (
-              <tr key={c.id}>
-                <td>{c.name}</td>
-                <td>{c.phone}</td>
-                <td>{formatCurrency(c.amount_owed)}</td>
-                <td>
-                  <span
-                    className="outcome-badge"
-                    style={{ backgroundColor: c.status === 'active' ? '#10b981' : '#6b7280' }}
-                  >
-                    {c.status}
-                  </span>
-                </td>
-                <td>
-                  <button className="btn btn-call" onClick={() => onStartCall(c)}>Start call</button>
-                  <button className="btn btn-secondary" style={{ marginLeft: 8 }} onClick={() => onEdit(c)}>Edit</button>
-                  <button className="btn btn-secondary" style={{ marginLeft: 8 }} onClick={() => onDelete(c.id)}>Delete</button>
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Customers View
-// ---------------------------------------------------------------------------
-function CustomersView() {
+function CustomersPage() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState(null);     // customer being edited, or null = create
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [formError, setFormError] = useState(null);
   const [callingCustomer, setCallingCustomer] = useState(null);
 
@@ -148,9 +25,8 @@ function CustomersView() {
     setLoading(true);
     try {
       const r = await fetch(`${API_URL}/api/customers`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();   // bare array, not { customers: [...] }
-      setCustomers(data);
+      if (!r.ok) throw new Error();
+      setCustomers(await r.json());
       setError(null);
     } catch {
       setError('Failed to load customers.');
@@ -161,22 +37,20 @@ function CustomersView() {
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
-  const openCreate = () => { setEditing(null); setFormError(null); setFormOpen(true); };
-  const openEdit = (customer) => { setEditing(customer); setFormError(null); setFormOpen(true); };
-  const closeForm = () => { setFormOpen(false); setEditing(null); setFormError(null); };
-
   const handleSave = async (payload) => {
     const isEdit = editing != null;
+    const body = isEdit ? payload : { ...payload, phone: generateRandomPhone() };
     const url = isEdit ? `${API_URL}/api/customers/${editing.id}` : `${API_URL}/api/customers`;
     try {
       const r = await fetch(url, {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw new Error();
       await fetchCustomers();
-      closeForm();
+      setDialogOpen(false);
+      setEditing(null);
     } catch {
       setFormError('Failed to save customer.');
     }
@@ -186,56 +60,38 @@ function CustomersView() {
     if (!window.confirm('Delete this customer?')) return;
     try {
       const r = await fetch(`${API_URL}/api/customers/${id}`, { method: 'DELETE' });
-      if (!r.ok) throw new Error();   // 204, no body — don't parse
+      if (!r.ok) throw new Error();
       await fetchCustomers();
     } catch {
       setError('Failed to delete customer.');
     }
   };
 
+  if (loading) return <p className="muted center-text">Loading customers…</p>;
+  if (error) return <p className="error-text center-text">{error}</p>;
+
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-        <button className="btn btn-primary" onClick={openCreate}>+ New Customer</button>
-      </div>
-
-      {loading ? (
-        <p className="muted center-text">Loading customers…</p>
-      ) : error ? (
-        <p className="error-text center-text">{error}</p>
-      ) : (
-        <CustomerTable
-          customers={customers}
-          onEdit={openEdit}
-          onDelete={handleDelete}
-          onStartCall={setCallingCustomer}
-        />
-      )}
-
+      <CustomersView
+        customers={customers}
+        onStartCall={setCallingCustomer}
+        onNew={() => { setEditing(null); setFormError(null); setDialogOpen(true); }}
+        onEdit={(c) => { setEditing(c); setFormError(null); setDialogOpen(true); }}
+        onDelete={handleDelete}
+      />
+      <CustomerDialog
+        open={dialogOpen}
+        editing={editing}
+        onClose={() => setDialogOpen(false)}
+        onSave={handleSave}
+        error={formError}
+      />
       {callingCustomer && (
-        <CallModal customer={callingCustomer} onClose={() => setCallingCustomer(null)} />
-      )}
-
-      {formOpen && (
-        <CustomerForm
-          initial={editing}
-          onSave={handleSave}
-          onCancel={closeForm}
-          error={formError}
-        />
+        <LiveCallDialog customer={callingCustomer} onClose={() => setCallingCustomer(null)} />
       )}
     </>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Stats Bar
-// ---------------------------------------------------------------------------
-
-
-// ---------------------------------------------------------------------------
-// Call History Table
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // App
@@ -268,7 +124,6 @@ function App() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      
       <AppSidebar />
       <div className="flex-1 p-6 lg:p-8">
         <header className="header">
@@ -293,7 +148,7 @@ function App() {
           </div>
 
           {view === 'customers' ? (
-            <CustomersView />
+            <CustomersPage />
           ) : (
             <>
               {callsLoading ? (

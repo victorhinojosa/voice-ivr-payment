@@ -32,3 +32,8 @@ export function formatCurrency(amount) {
   if (amount == null) return '—';
   return `$${parseFloat(amount).toFixed(2)}`;
 }
+
+export function generateRandomPhone() {
+  const digits = Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join('');
+  return `+52${digits}`;
+}

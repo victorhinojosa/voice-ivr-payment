@@ -3,26 +3,26 @@
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 7%;
+  --background: 0 0% 4%;
   --foreground: 0 0% 92%;
-  --card: 0 0% 11%;
-  --border: 0 0% 20%;
-  --input: 0 0% 20%;
-  --ring: 231 48% 60%;
-  --muted: 0 0% 15%;
+  --card: 0 0% 8%;
+  --border: 0 0% 18%;
+  --input: 0 0% 18%;
+  --ring: 225 84% 49%;
+  --muted: 0 0% 12%;
   --muted-foreground: 0 0% 60%;
-  --primary: 231 48% 60%;
+  --primary: 225 84% 49%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 18%;
-  --secondary-foreground: 0 0% 92%;
+  --secondary: 0 0% 100%;
+  --secondary-foreground: 0 0% 9%;
   --success: 160 70% 45%;
   --warning: 38 90% 55%;
   --warning-foreground: 20 90% 90%;
   --destructive: 0 75% 60%;
-  --sidebar: 0 0% 5%;
+  --sidebar: 0 0% 13%;
   --sidebar-foreground: 0 0% 90%;
-  --sidebar-primary: 231 48% 60%;
+  --sidebar-primary: 225 84% 49%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 0 0% 14%;
+  --sidebar-accent: 0 0% 20%;
   --sidebar-accent-foreground: 0 0% 95%;
 }

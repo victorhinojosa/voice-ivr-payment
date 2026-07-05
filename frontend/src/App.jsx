@@ -96,6 +96,26 @@ function CustomersPage({ onCountChange }) {
   );
 }
 
+function AboutDemoModal({ open, onClose }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button className="absolute inset-0 bg-foreground/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
+        <h2 className="text-base font-semibold text-foreground mb-2">About this demo</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          This is a working demo of an autonomous voice collections agent. Add yourself as a customer and click "Start call" to talk to the AI live — no phone number needed, it runs right in your browser.
+        </p>
+        <div className="flex justify-end gap-2">
+          <a href="https://github.com/victorhinojosa" target="_blank" rel="noreferrer"
+             className="text-sm text-primary hover:underline self-center">GitHub</a>
+          <button onClick={onClose} className="rounded-lg bg-muted px-3 py-1.5 text-sm text-foreground">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
@@ -105,6 +125,7 @@ function App() {
   const [callsError, setCallsError] = useState(null);
   const [view, setView] = useState('customers'); // 'customers' | 'calls'
   const [customersCount, setCustomersCount] = useState(0);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   const fetchCalls = useCallback(async () => {
     try {
@@ -132,20 +153,24 @@ function App() {
       <div className="flex-1 p-6 lg:p-8">
 
         {/* Header */}
-        <div className="border-b border-border pb-4 mb-6">
+        <div className="pb-4 mb-6">
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold text-foreground">Collections Dashboard</h1>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-success/12 px-2.5 py-0.5 text-xs font-medium text-success">
-              <span className="size-1.5 rounded-full bg-success" />
+              <span className="relative flex size-1.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex size-1.5 rounded-full bg-success" />
+              </span>
               Agent online
             </span>
           </div>
+          <AboutDemoModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
           <p className="text-sm text-muted-foreground mt-1">
             Promise-to-pay outreach, fully automated
           </p>
         </div>
 
-        {/* Tabs */}
+         {/* Tabs */}
         <div className="flex gap-6 border-b border-border mb-6">
           <button
             onClick={() => setView('customers')}
@@ -175,6 +200,8 @@ function App() {
           </button>
         </div>
 
+        <div className="mx-auto max-w-6xl">
+
         {view === 'customers' ? (
           <CustomersPage onCountChange={setCustomersCount} />
         ) : (
@@ -188,6 +215,10 @@ function App() {
             )}
           </>
         )}
+        </div>
+        <footer className="mt-10 border-t border-border pt-6 text-center text-xs text-muted-foreground">
+          Check the code on GitHub · <a href="https://github.com/victorhinojosa" className="text-primary hover:underline">GitHub</a>
+        </footer>
       </div>
     </div>
   );

@@ -8,7 +8,7 @@ const nav = [
 
 export function AppSidebar() {
   return (
-    <aside className="hidden w-64 shrink-0 flex-col bg-sidebar px-4 py-6 text-sidebar-foreground lg:flex">
+    <aside className="hidden w-64 shrink-0 flex-col bg-sidebar px-4 py-6 text-sidebar-foreground lg:flex sticky top-0 h-screen overflow-y-auto">
       <div className="flex items-center gap-2.5 px-2">
         <div className="flex size-9 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
           <Waypoints className="size-5" />

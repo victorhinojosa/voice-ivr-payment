@@ -1,12 +1,13 @@
 import { cn } from '../lib/utils';
 
 const iconTone = {
-  primary: 'bg-primary/10 text-primary',
-  success: 'bg-success/12 text-success',
-  warning: 'bg-warning/15 text-warning-foreground',
-  destructive: 'bg-destructive/10 text-destructive',
-  muted: 'bg-muted text-muted-foreground',
-};
+    primary: 'bg-primary/10 text-primary',
+    success: 'bg-success/12 text-success',
+    warning: 'bg-warning/15 text-warning-foreground',
+    destructive: 'bg-destructive/10 text-destructive',
+    muted: 'bg-muted text-muted-foreground',
+    neutral: 'bg-foreground/10 text-foreground',
+  };
 
 export function StatCard({ label, value, hint, icon: Icon, tone = 'muted' }) {
   return (

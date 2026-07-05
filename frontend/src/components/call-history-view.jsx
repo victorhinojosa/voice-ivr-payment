@@ -5,6 +5,17 @@ import { StatCard } from './stat-card';
 import { formatCurrency, formatDate, formatDuration, OUTCOME_META } from '../lib/utils';
 import { cn } from '../lib/utils';
 
+function parseTranscript(raw) {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
 export function CallHistoryView({ calls }) {
   const [expanded, setExpanded] = useState(null);
 
@@ -16,7 +27,7 @@ export function CallHistoryView({ calls }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Total calls" value={total} icon={PhoneCall} tone="primary" />
+        <StatCard label="Total calls" value={total} icon={PhoneCall} tone="neutral" />
         <StatCard label="Promises made" value={promises} icon={CheckCircle2} tone="success" />
         <StatCard label="No commitment" value={noCommit} icon={MinusCircle} tone="muted" />
         <StatCard label="Refused" value={refused} icon={XCircle} tone="destructive" />
@@ -72,17 +83,32 @@ export function CallHistoryView({ calls }) {
                       </td>
                     </tr>
                     {isOpen ? (
-                      <tr>
-                        <td colSpan={7} className="bg-muted/30 px-4 py-4">
-                          <div className="mx-auto max-w-2xl space-y-2">
-                            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Transcript</p>
-                            <p className="text-sm text-foreground whitespace-pre-wrap">
-                              {call.transcript || 'No transcript recorded.'}
-                            </p>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
+                        <tr>
+                            <td colSpan={7} className="bg-muted/30 px-4 py-4">
+                            <div className="mx-auto max-w-2xl space-y-2">
+                                <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Transcript</p>
+                                {(() => {
+                                const parsedTurns = parseTranscript(call.transcript);
+                                if (parsedTurns) {
+                                    return parsedTurns.map((t, i) => (
+                                    <p key={i} className="text-sm text-foreground">
+                                        <span className="font-medium text-muted-foreground">
+                                        {t.role === 'agent' ? 'Agent: ' : 'Customer: '}
+                                        </span>
+                                        {t.text}
+                                    </p>
+                                    ));
+                                }
+                                return (
+                                    <p className="text-sm text-foreground whitespace-pre-wrap">
+                                    {call.transcript || 'No transcript recorded.'}
+                                    </p>
+                                );
+                                })()}
+                            </div>
+                            </td>
+                        </tr>
+                        ) : null}
                   </Fragment>
                 );
               })}

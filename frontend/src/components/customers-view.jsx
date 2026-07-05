@@ -20,7 +20,7 @@ export function CustomersView({ customers, onStartCall, onNew, onEdit, onDelete 
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <StatCard label="Portfolio outstanding" value={formatCurrency(totalOwed)}
-          hint={`Across ${customers.length} accounts`} icon={Wallet} tone="primary" />
+          hint={`Across ${customers.length} accounts`} icon={Wallet} tone="neutral" />
         <StatCard label="Accounts in queue" value={customers.length}
           hint="Ready for outreach" icon={Users} tone="success" />
       </div>
@@ -37,7 +37,9 @@ export function CustomersView({ customers, onStartCall, onNew, onEdit, onDelete 
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or phone"
                 className="w-full rounded-lg border border-input bg-background py-2 pr-3 pl-9 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30" />
             </div>
-            <Button onClick={onNew}><Plus className="size-4" />New customer</Button>
+            <Button variant="secondary" onClick={onNew}>
+              <Plus className="size-4" />New customer
+            </Button>
           </div>
         </div>
 
@@ -66,7 +68,15 @@ export function CustomersView({ customers, onStartCall, onNew, onEdit, onDelete 
                   <td className="px-4 py-3 font-medium text-foreground tabular-nums">{formatCurrency(c.amount_owed)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1.5">
-                      <Button size="sm" onClick={() => onStartCall(c)}><Phone className="size-3.5" />Start call</Button>
+                      {/* <Button size="sm" variant="secondary" onClick={() => onStartCall(c)}>
+                        <Phone className="size-3.5" />Start call
+                      </Button> */}
+                      <Button size="sm" variant="secondary" onClick={() => {
+                        console.log('start call clicked', c);
+                        onStartCall(c);
+                      }}>
+                        <Phone className="size-3.5" />Start call
+                      </Button>
                       <ActionsMenu customer={c} onEdit={onEdit} onDelete={onDelete} />
                     </div>
                   </td>

@@ -1,179 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
-import VoiceSession from './VoiceSession';
+import { Users, Phone, Info } from 'lucide-react';
+import { CallHistoryView } from './components/call-history-view';
+import { AppSidebar } from './components/app-sidebar';
+import { CustomersView } from './components/customers-view';
+import { CustomerDialog } from './components/customer-dialog';
+import { LiveCallDialog } from './components/live-call-dialog';
+import { generateRandomPhone, cn } from './lib/utils';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-const OUTCOME_COLORS = {
-  promise_made:  '#10b981',
-  refused:       '#ef4444',
-  no_commitment: '#6b7280',
-  initiated:     '#3b82f6',
-  no_answer:     '#f97316',
-};
-
-const OUTCOME_LABELS = {
-  promise_made:  'Promise Made',
-  refused:       'Refused',
-  no_commitment: 'No Commitment',
-  initiated:     'Initiated',
-  no_answer:     'No Answer',
-};
-
-function formatDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
-
-function formatDuration(seconds) {
-  if (seconds == null) return '—';
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-function formatCurrency(amount) {
-  if (amount == null) return '—';
-  return `$${parseFloat(amount).toFixed(2)}`;
-}
-
 // ---------------------------------------------------------------------------
-// Customer Form (modal — used for both create and edit)
+// Customers Page
 // ---------------------------------------------------------------------------
-function CustomerForm({ initial, onSave, onCancel, error }) {
-  const [name, setName] = useState(initial?.name || '');
-  const [phone, setPhone] = useState(initial?.phone || '');
-  const [amountOwed, setAmountOwed] = useState(initial?.amount_owed ?? '');
-  const [saving, setSaving] = useState(false);
-
-  const isEdit = initial != null;
-
-  const submit = async () => {
-    if (!name.trim() || !phone.trim()) return;
-    setSaving(true);
-    await onSave({
-      name: name.trim(),
-      phone: phone.trim(),
-      amount_owed: parseFloat(amountOwed) || 0
-    });
-    setSaving(false);
-  };
-
-  const overlay = {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-  };
-
-  return (
-    <div style={overlay} onClick={onCancel}>
-      <div className="card" style={{ width: 400, maxWidth: '90%' }} onClick={e => e.stopPropagation()}>
-        <h3 style={{ marginTop: 0 }}>{isEdit ? 'Edit Customer' : 'New Customer'}</h3>
-
-        <div className="field-group">
-          <label>Name</label>
-          <input value={name} onChange={e => setName(e.target.value)} />
-        </div>
-        <div className="field-group">
-          <label>Phone</label>
-          <input value={phone} onChange={e => setPhone(e.target.value)} />
-        </div>
-        <div className="field-group">
-          <label>Amount Owed</label>
-          <input type="number" step="0.01" value={amountOwed} onChange={e => setAmountOwed(e.target.value)} />
-        </div>
-
-        {error && <p className="error-text">{error}</p>}
-
-        <div className="control-actions">
-          <button className="btn btn-secondary" onClick={onCancel} disabled={saving}>Cancel</button>
-          <button className="btn btn-primary" onClick={submit} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Call Modal — wraps VoiceSession for a specific customer
-// ---------------------------------------------------------------------------
-function CallModal({ customer, onClose }) {
-  const overlay = {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-  };
-  return (
-    <div style={overlay}>
-      <div style={{ width: 560, maxWidth: '95%' }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-          <button className="btn btn-secondary" onClick={onClose}>Close</button>
-        </div>
-        <VoiceSession customerId={customer.id} customerName={customer.name} />
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Customer Table
-// ---------------------------------------------------------------------------
-function CustomerTable({ customers, onEdit, onDelete , onStartCall}) {
-  return (
-    <div className="card table-card">
-      <table className="call-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Phone</th>
-            <th>Amount Owed</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {customers.length === 0 ? (
-            <tr><td colSpan="5" className="no-data">No customers yet</td></tr>
-          ) : (
-            customers.map(c => (
-              <tr key={c.id}>
-                <td>{c.name}</td>
-                <td>{c.phone}</td>
-                <td>{formatCurrency(c.amount_owed)}</td>
-                <td>
-                  <span
-                    className="outcome-badge"
-                    style={{ backgroundColor: c.status === 'active' ? '#10b981' : '#6b7280' }}
-                  >
-                    {c.status}
-                  </span>
-                </td>
-                <td>
-                  <button className="btn btn-call" onClick={() => onStartCall(c)}>Start call</button>
-                  <button className="btn btn-secondary" style={{ marginLeft: 8 }} onClick={() => onEdit(c)}>Edit</button>
-                  <button className="btn btn-secondary" style={{ marginLeft: 8 }} onClick={() => onDelete(c.id)}>Delete</button>
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Customers View
-// ---------------------------------------------------------------------------
-function CustomersView() {
+function CustomersPage({ onCountChange }) {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState(null);     // customer being edited, or null = create
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [formError, setFormError] = useState(null);
   const [callingCustomer, setCallingCustomer] = useState(null);
 
@@ -181,35 +26,34 @@ function CustomersView() {
     setLoading(true);
     try {
       const r = await fetch(`${API_URL}/api/customers`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();   // bare array, not { customers: [...] }
+      if (!r.ok) throw new Error();
+      const data = await r.json();
       setCustomers(data);
+      onCountChange?.(data.length);
       setError(null);
     } catch {
       setError('Failed to load customers.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onCountChange]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
-  const openCreate = () => { setEditing(null); setFormError(null); setFormOpen(true); };
-  const openEdit = (customer) => { setEditing(customer); setFormError(null); setFormOpen(true); };
-  const closeForm = () => { setFormOpen(false); setEditing(null); setFormError(null); };
-
   const handleSave = async (payload) => {
     const isEdit = editing != null;
+    const body = isEdit ? payload : { ...payload, phone: generateRandomPhone() };
     const url = isEdit ? `${API_URL}/api/customers/${editing.id}` : `${API_URL}/api/customers`;
     try {
       const r = await fetch(url, {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw new Error();
       await fetchCustomers();
-      closeForm();
+      setDialogOpen(false);
+      setEditing(null);
     } catch {
       setFormError('Failed to save customer.');
     }
@@ -219,131 +63,55 @@ function CustomersView() {
     if (!window.confirm('Delete this customer?')) return;
     try {
       const r = await fetch(`${API_URL}/api/customers/${id}`, { method: 'DELETE' });
-      if (!r.ok) throw new Error();   // 204, no body — don't parse
+      if (!r.ok) throw new Error();
       await fetchCustomers();
     } catch {
       setError('Failed to delete customer.');
     }
   };
 
+  if (loading) return <p className="muted center-text">Loading customers…</p>;
+  if (error) return <p className="error-text center-text">{error}</p>;
+
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-        <button className="btn btn-primary" onClick={openCreate}>+ New Customer</button>
-      </div>
-
-      {loading ? (
-        <p className="muted center-text">Loading customers…</p>
-      ) : error ? (
-        <p className="error-text center-text">{error}</p>
-      ) : (
-        <CustomerTable
-          customers={customers}
-          onEdit={openEdit}
-          onDelete={handleDelete}
-          onStartCall={setCallingCustomer}
-        />
-      )}
-
+      <CustomersView
+        customers={customers}
+        onStartCall={setCallingCustomer}
+        onNew={() => { setEditing(null); setFormError(null); setDialogOpen(true); }}
+        onEdit={(c) => { setEditing(c); setFormError(null); setDialogOpen(true); }}
+        onDelete={handleDelete}
+      />
+      <CustomerDialog
+        open={dialogOpen}
+        editing={editing}
+        onClose={() => setDialogOpen(false)}
+        onSave={handleSave}
+        error={formError}
+      />
       {callingCustomer && (
-        <CallModal customer={callingCustomer} onClose={() => setCallingCustomer(null)} />
-      )}
-
-      {formOpen && (
-        <CustomerForm
-          initial={editing}
-          onSave={handleSave}
-          onCancel={closeForm}
-          error={formError}
-        />
+        <LiveCallDialog customer={callingCustomer} onClose={() => setCallingCustomer(null)} />
       )}
     </>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Stats Bar
-// ---------------------------------------------------------------------------
-function StatsBar({ calls }) {
-  const stats = [
-    { label: 'Total Calls',    value: calls.length },
-    { label: 'Promises Made',  value: calls.filter(c => c.outcome === 'promise_made').length },
-    { label: 'Refused',        value: calls.filter(c => c.outcome === 'refused').length },
-    { label: 'No Commitment',  value: calls.filter(c => c.outcome === 'no_commitment').length },
-  ];
+function AboutDemoModal({ open, onClose }) {
+  if (!open) return null;
   return (
-    <div className="stats-bar">
-      {stats.map(s => (
-        <div className="stat-tile" key={s.label}>
-          <div className="stat-value">{s.value}</div>
-          <div className="stat-label">{s.label}</div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button className="absolute inset-0 bg-foreground/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
+        <h2 className="text-base font-semibold text-foreground mb-2">About this demo</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          This is a working demo of an autonomous voice collections agent. Add yourself as a customer and click "Start call" to talk to the AI live, no phone number needed, it runs right in your browser.
+        </p>
+        <div className="flex justify-end gap-2">
+          <a href="https://github.com/victorhinojosa/voice-ivr-payment" target="_blank" rel="noreferrer"
+             className="text-sm text-primary hover:underline self-center">Check code</a>
+          <button onClick={onClose} className="rounded-lg bg-muted px-3 py-1.5 text-sm text-foreground">Close</button>
         </div>
-      ))}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Call History Table
-// ---------------------------------------------------------------------------
-function CallTable({ calls }) {
-  const [expandedRow, setExpandedRow] = useState(null);
-  const toggle = (id) => setExpandedRow(prev => prev === id ? null : id);
-
-  return (
-    <div className="card table-card">
-      <table className="call-table">
-        <thead>
-          <tr>
-            <th>Customer</th>
-            <th>Date</th>
-            <th>Phone</th>
-            <th>Duration</th>
-            <th>Outcome</th>
-            <th>Promise Date</th>
-            <th>Promise Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {calls.length === 0 ? (
-            <tr><td colSpan="7" className="no-data">No calls yet</td></tr>
-          ) : (
-            calls.map(call => (
-              <React.Fragment key={call.id}>
-                <tr
-                  onClick={() => toggle(call.id)}
-                  className={expandedRow === call.id ? 'row-expanded' : ''}
-                >
-                  <td>{call.customer_name}</td>
-                  <td>{formatDate(call.initiated_at)}</td>
-                  <td>{call.phone_number}</td>
-                  <td>{formatDuration(call.duration_seconds)}</td>
-                  <td>
-                    <span
-                      className="outcome-badge"
-                      style={{ backgroundColor: OUTCOME_COLORS[call.outcome] || OUTCOME_COLORS[call.status] || '#6b7280' }}
-                    >
-                      {OUTCOME_LABELS[call.outcome] || OUTCOME_LABELS[call.status] || call.outcome || call.status || '—'}
-                    </span>
-                  </td>
-                  <td>{call.promise_date || '—'}</td>
-                  <td>{formatCurrency(call.promise_amount)}</td>
-                </tr>
-                {expandedRow === call.id && (
-                  <tr className="transcript-row">
-                    <td colSpan="7">
-                      <div className="transcript-box">
-                        <strong>Transcript</strong>
-                        <p>{call.transcript || 'No transcript recorded.'}</p>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            ))
-          )}
-        </tbody>
-      </table>
+      </div>
     </div>
   );
 }
@@ -356,6 +124,8 @@ function App() {
   const [callsLoading, setCallsLoading] = useState(true);
   const [callsError, setCallsError] = useState(null);
   const [view, setView] = useState('customers'); // 'customers' | 'calls'
+  const [customersCount, setCustomersCount] = useState(0);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   const fetchCalls = useCallback(async () => {
     try {
@@ -378,30 +148,69 @@ function App() {
   }, [fetchCalls]);
 
   return (
-    <div className="App">
-      <header className="header">
-        <h1>Dashboard</h1>
-        <p className="subtitle">Promise-to-Pay Collection System</p>
-      </header>
+    <div className="flex min-h-screen bg-background">
+      <AppSidebar />
+      <div className="flex-1 p-6 lg:p-8">
 
-      <div className="container">
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        {/* Header */}
+        <div className="pb-4 mb-6">
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-foreground">Collections Dashboard</h1>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/15 px-3 py-1 text-xs font-medium text-success">
+            <span className="relative flex size-1.5">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-success" />
+            </span>
+            Agent online
+          </span>
           <button
-            className={`btn ${view === 'customers' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setView('customers')}
+            onClick={() => setAboutOpen(true)}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="About this demo"
           >
+            <Info className="size-4" />
+          </button>
+        </div>
+          <AboutDemoModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
+          <p className="text-sm text-muted-foreground mt-1">
+            Promise-to-pay outreach, fully automated
+          </p>
+        </div>
+
+         {/* Tabs */}
+        <div className="flex gap-6 border-b border-border mb-6">
+          <button
+            onClick={() => setView('customers')}
+            className={cn(
+              'flex items-center gap-2 pb-3 text-sm font-medium border-b-2 -mb-px transition-colors',
+              view === 'customers'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Users className="size-4" />
             Customers
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{customersCount}</span>
           </button>
           <button
-            className={`btn ${view === 'calls' ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setView('calls')}
+            className={cn(
+              'flex items-center gap-2 pb-3 text-sm font-medium border-b-2 -mb-px transition-colors',
+              view === 'calls'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
           >
+            <Phone className="size-4" />
             Call History
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{calls.length}</span>
           </button>
         </div>
 
+        <div className="mx-auto max-w-6xl">
+
         {view === 'customers' ? (
-          <CustomersView />
+          <CustomersPage onCountChange={setCustomersCount} />
         ) : (
           <>
             {callsLoading ? (
@@ -409,13 +218,14 @@ function App() {
             ) : callsError ? (
               <p className="error-text center-text">{callsError}</p>
             ) : (
-              <>
-                <StatsBar calls={calls} />
-                <CallTable calls={calls} />
-              </>
+              <CallHistoryView calls={calls} />
             )}
           </>
         )}
+        </div>
+        <footer className="mt-10 border-t border-border pt-6 text-center text-xs text-muted-foreground">
+          Check the code on GitHub · <a href="https://github.com/victorhinojosa/voice-ivr-payment" target="_blank" rel="noreferrer" className="text-primary hover:underline">Click here</a>
+        </footer>
       </div>
     </div>
   );

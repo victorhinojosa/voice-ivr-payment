@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { MicVAD } from '@ricky0123/vad-web';
 import { encodeWav } from './wavEncoder';
+import { Button } from './components/ui/button';
+import { cn } from './lib/utils';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -167,37 +169,55 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
   const active = ['connecting', 'speaking', 'listening', 'thinking'].includes(status);
 
   return (
-    <div className="card voice-session">
-      <div className="voice-header">
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="voice-title">{customerName ? `Negotiation — ${customerName}` : 'Voice Negotiation'}</h2>
-          <span className={`voice-status voice-status-${status}`}>{statusLabel}</span>
+          <h2 className="text-sm font-medium text-foreground">
+            {customerName ? `Negotiation — ${customerName}` : 'Voice Negotiation'}
+          </h2>
+          <span className={cn(
+            'text-xs font-medium',
+            status === 'listening' && 'text-success',
+            status === 'speaking' && 'text-primary',
+            status === 'thinking' && 'text-warning',
+            status === 'error' && 'text-destructive',
+            status === 'done' && 'text-muted-foreground',
+          )}>
+            {statusLabel}
+          </span>
         </div>
-        <div className="voice-actions">
+        <div>
           {!active && (
-            <button className="btn btn-call" onClick={start} disabled={!mediaSupported}>
+            <Button size="sm" onClick={start} disabled={!mediaSupported}>
               {status === 'done' ? 'Start New Session' : 'Start Negotiation'}
-            </button>
+            </Button>
           )}
           {active && (
-            <button className="btn btn-secondary" onClick={handleEnd}>End</button>
+            <Button size="sm" variant="outline" onClick={handleEnd}>End</Button>
           )}
         </div>
       </div>
-
+  
       {!mediaSupported && (
-        <p className="error-text">Your browser does not support microphone recording.</p>
+        <p className="text-xs text-destructive mb-2">Your browser does not support microphone recording.</p>
       )}
-      {error && <p className="error-text">{error}</p>}
-
+      {error && <p className="text-xs text-destructive mb-2">{error}</p>}
+  
       {turns.length > 0 && (
-        <div className="voice-transcript">
-          {turns.map((t, i) => (
-            <div key={i} className={`voice-bubble voice-bubble-${t.role}`}>
-              <span className="voice-bubble-role">{t.role === 'agent' ? 'Agent' : 'You'}</span>
-              <span className="voice-bubble-text">{t.text}</span>
-            </div>
-          ))}
+        <div className="flex-1 space-y-3 overflow-y-auto">
+          {turns.map((t, i) => {
+            const isAgent = t.role === 'agent';
+            return (
+              <div key={i} className={cn('flex items-end gap-2', isAgent ? 'justify-start' : 'flex-row-reverse justify-start')}>
+                <div className={cn(
+                  'max-w-[78%] rounded-2xl px-3.5 py-2 text-sm',
+                  isAgent ? 'rounded-bl-sm bg-primary text-primary-foreground' : 'rounded-br-sm bg-muted text-foreground'
+                )}>
+                  {t.text}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

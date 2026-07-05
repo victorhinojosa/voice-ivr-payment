@@ -24,6 +24,7 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
 | AI Agent         | Claude Haiku (Anthropic)                                                            |
 | Database         | Supabase (asyncpg)                                                                  |
 | Frontend         | React 18                                                                            |
+| UI components    | Tailwind CSS, custom shadcn-style component library                                 |
 
 ## How It Works
 
@@ -126,11 +127,10 @@ npm start
 
 Open `http://localhost:3000`
 
-- **Control Panel** — set the phone number (label) and the debt amount
-- **Voice Negotiation** — click **Start Negotiation** to run a live session; the live transcript appears as the conversation proceeds
-- **Stats Bar** — totals by outcome
-- **Call Table** — click any row to expand the full transcript
-- Auto-refreshes every 10 seconds
+- **Sidebar** — navigate between Customers and Call History (Analytics coming soon)
+- **Customers** — manage the calling queue: add/edit/delete customer records (name + amount owed; phone number is auto-generated for demo purposes), and click "Start call" to launch a live voice negotiation session
+- **Call History** — stats bar (total calls, promises made, refused, no commitment) and a full call log; click "View" on any row to expand the transcript
+- Call History auto-refreshes every 10 seconds
 
 **Outcome badge colors:**
 
@@ -141,19 +141,23 @@ Open `http://localhost:3000`
 ## API Reference
 
 
-| Method | Endpoint      | Description                                |
-| ------ | ------------- | ------------------------------------------ |
-| `GET`  | `/api/calls`  | List all session records                   |
-| `GET`  | `/api/config` | Get current config (phone, amount)         |
-| `PUT`  | `/api/config` | Update a config value                      |
-| `WS`   | `/ws/session` | Browser voice session (see protocol below) |
+| Method   | Endpoint              | Description                                |
+| ---------| ----------------------| ------------------------------------------ |
+| `GET`    | `/api/calls`          | List all session records                   |
+| `GET`    | `/api/config`         | Get current config (phone, amount)         |
+| `PUT`    | `/api/config`         | Update a config value                      |
+| `WS`     | `/ws/session`         | Browser voice session (see protocol below) |
+| `GET`    | `/api/customers`      | List all customers                         |
+| `POST`   | `/api/customers`      | Create a customer                          |
+| `PUT`    | `/api/customers/{id}` | Update a customer                          |
+| `DELETE` | `/api/customers/{id}` | Delete a customer                          |
 
 
 ### WebSocket protocol (`/ws/session`)
 
 ```
 client → server:
-  {"type": "start", "session_id": "<uuid>"}   # open the session
+  {"type": "start", "session_id": "<uuid>", "customer_id": <id>, "customer_name": "<name>"}  # open the session
   {"type": "user",  "text": "<recognized speech>"}
   {"type": "end"}                              # user ended early
 
@@ -187,6 +191,16 @@ CREATE TABLE config (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE customers (
+    id          SERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    phone       TEXT NOT NULL,
+    amount_owed NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    status      TEXT NOT NULL DEFAULT 'active',
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
 ```
 
 ## Project Structure
@@ -201,12 +215,28 @@ voice-ivr-payment/
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
-│   ├── public/             # Silero VAD model, ONNX Runtime WASM, VAD worklet (static assets)
+│   ├── public/
 │   ├── src/
-│   │   ├── App.jsx          # Dashboard UI
-│   │   ├── VoiceSession.jsx # Browser voice session (VAD + WebSocket + ElevenLabs audio playback)
-│   │   ├── wavEncoder.js    # Encodes raw VAD audio (Float32) into WAV for upload
-│   │   └── App.css
+│   │   ├── App.jsx
+│   │   ├── App.css
+│   │   ├── index.css
+│   │   ├── VoiceSession.jsx
+│   │   ├── wavEncoder.js
+│   │   ├── lib/
+│   │   │   └── utils.js         # cn(), formatCurrency/Date/Duration, OUTCOME_META, generateRandomPhone
+│   │   └── components/
+│   │       ├── ui/
+│   │       │   ├── button.jsx
+│   │       │   └── badge.jsx
+│   │       ├── app-sidebar.jsx
+│   │       ├── stat-card.jsx
+│   │       ├── customers-view.jsx
+│   │       ├── customer-dialog.jsx
+│   │       ├── live-call-dialog.jsx
+│   │       ├── call-history-view.jsx
+│   │       └── actions-menu.jsx
+│   ├── tailwind.config.js
+│   ├── postcss.config.js
 │   └── package.json
 ├── .env.example
 └── README.md

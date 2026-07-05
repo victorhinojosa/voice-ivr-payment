@@ -1,6 +1,7 @@
 # AI Collections Operations Platform
 
-AI voice agent that autonomously negotiates real payment commitments in a **browser-based** voice session using the Web Speech API and Claude.
+AI voice agent that autonomously negotiates real payment commitments in a **browser-based** voice session using ElevenLabs and Claude.
+<img width="1874" height="946" alt="ss" src="https://github.com/user-attachments/assets/0a116342-a5a4-4be1-9394-bc38433096f8" />
 
 ## Features
 

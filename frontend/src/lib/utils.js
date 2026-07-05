@@ -30,7 +30,7 @@ export function formatDuration(seconds) {
 
 export function formatCurrency(amount) {
   if (amount == null) return '—';
-  return `$${parseFloat(amount).toFixed(2)}`;
+  return `$${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function generateRandomPhone() {

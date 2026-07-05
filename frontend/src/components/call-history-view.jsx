@@ -74,7 +74,7 @@ export function CallHistoryView({ calls }) {
                             type="button"
                             onClick={() => setExpanded(isOpen ? null : call.id)}
                             aria-expanded={isOpen}
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                           >
                             {isOpen ? 'Hide' : 'View'}
                             <ChevronDown className={cn('size-3.5 transition-transform', isOpen && 'rotate-180')} />

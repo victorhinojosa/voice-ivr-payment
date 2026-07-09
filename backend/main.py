@@ -14,7 +14,7 @@ from db import (
     get_all_calls,
 )
 from datetime import date
-from claude_agent import extract_ptp, agent_reply, format_date_spoken
+from claude_agent import extract_ptp, agent_reply, format_date_spoken, SessionConfig
 from customers.router import router as customers_router
 from customers.repository import get_customer_by_id
 from voice_io import synthesize_speech, transcribe_speech
@@ -94,7 +94,7 @@ async def _send_agent_turn(websocket: WebSocket, text: str, is_terminal: bool, l
     })
 
 
-async def _finalize_session(session_id: str, call_id, amount_owed: float, started_at: float):
+async def _finalize_session(session_id: str, call_id, amount_owed: float, started_at: float, config: SessionConfig):
     """
     Run PTP extraction over the accumulated transcript and persist the call.
     Reuses the exact transcript format and extraction pipeline from the
@@ -111,8 +111,8 @@ async def _finalize_session(session_id: str, call_id, amount_owed: float, starte
         ptp = {"outcome": "no_commitment", "promise_date": None, "promise_amount": None}
     else:
         full_transcript_text = " | ".join(f"{t['role']}: {t['text']}" for t in history)
-        print(f"[DEBUG] Finalizing session {session_id} — extracting PTP")
-        ptp = await extract_ptp(full_transcript_text, amount_owed)
+        print(f"[DEBUG] Finalizing session {session_id} — extracting PTP (language={config.language})")
+        ptp = await extract_ptp(full_transcript_text, amount_owed, config)
 
     if call_id is not None:
         await complete_call(
@@ -129,6 +129,12 @@ async def _finalize_session(session_id: str, call_id, amount_owed: float, starte
         print(f"[ERROR] Cannot persist outcome — call_id is None for session={session_id}")
 
     return ptp
+
+
+def _log_turn(role: str, text: str, language: str = "English"):
+    """Log a turn with language annotation for debugging."""
+    prefix = "[AGENT SPEAKS]" if role == "agent" else "[CUSTOMER RESPONDS]"
+    print(f"{prefix} [LANG={language}] {text[:80]}...")
 
 
 @app.websocket("/ws/session")
@@ -194,11 +200,25 @@ async def voice_session(websocket: WebSocket):
         print(f"[DEBUG] Created call id={call_id}, customer_id={customer['id']}, amount_owed={amount_owed}")
 
         # Seed the conversation with the agent's opening line and speak it.
-        opening = (
-            f"Hello {customer_name}, this is a courtesy call regarding your outstanding "
-            f"balance of ${amount_owed:.2f}. When would you be able to make a payment?"
-        )
+        # Opening adapts to debt_type and company_name
+        if session_config.language == "Spanish":
+            opening = (
+                f"Hola {customer_name}, le llamamos de {session_config.company_name} respecto a {session_config.debt_type == 'mortgage' and 'su pago hipotecario vencido' or 'su saldo pendiente'} "
+                f"de ${amount_owed:.2f}. ¿Cuándo podrías hacer un pago?"
+            )
+        else:
+            debt_context = {
+                "credit_card": "outstanding credit card balance",
+                "mortgage": "overdue mortgage payment",
+                "insurance_premium": "overdue insurance premium",
+            }.get(session_config.debt_type, "outstanding balance")
+            opening = (
+                f"Hello {customer_name}, this is a courtesy call from {session_config.company_name} regarding your "
+                f"{debt_context} of ${amount_owed:.2f}. When would you be able to make a payment?"
+            )
+        
         conversations[session_id] = [{"role": "agent", "text": opening}]
+        _log_turn("agent", opening, session_config.language)
         await _send_agent_turn(websocket, opening, False, language=session_config.language)
 
         # Turn loop.
@@ -224,13 +244,16 @@ async def voice_session(websocket: WebSocket):
 
             # echo back so the frontend can render it
             await websocket.send_json({"type": "user", "text": speech})
+            
+            # Log customer turn with language for debugging
+            _log_turn("customer", speech, session_config.language)
 
             if not speech:
                 # No usable speech — close out as no_commitment (mirrors empty-speech path).
                 reply_text = "We weren't able to confirm a date. Someone will reach out to you soon. Goodbye."
                 history.append({"role": "agent", "text": reply_text})
                 conversations[session_id] = history
-                ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
+                ptp = await _finalize_session(session_id, call_id, amount_owed, started_at, session_config)
                 finalized = True
                 await _send_agent_turn(websocket, reply_text, True, language=session_config.language)
                 await websocket.send_json({
@@ -254,7 +277,7 @@ async def voice_session(websocket: WebSocket):
                 reply_text = None
                 is_terminal = True
             else:
-                ar = await agent_reply(history, amount_owed, customer_name)
+                ar = await agent_reply(history, amount_owed, customer_name, session_config)
                 reply_text = ar["reply"]
                 is_terminal = ar["is_terminal"]
                 history.append({"role": "agent", "text": reply_text})
@@ -265,7 +288,7 @@ async def voice_session(websocket: WebSocket):
                     continue
 
             # Terminal turn — extract PTP and persist.
-            ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
+            ptp = await _finalize_session(session_id, call_id, amount_owed, started_at, session_config)
             finalized = True
 
             if ptp["outcome"] == "promise_made":
@@ -275,15 +298,25 @@ async def voice_session(websocket: WebSocket):
                     # force_terminal path — the model never got to speak a natural closing,
                     # so build one from the actual extracted result instead of guessing.
                     promise_date_obj = date.fromisoformat(ptp["promise_date"])
-                    closing = (
-                        f"Perfect, {customer_name}. I have you down for "
-                        f"{format_date_spoken(promise_date_obj)} for the "
-                        f"${ptp['promise_amount']:.2f} payment. Thank you for your time."
-                    )
+                    if session_config.language == "Spanish":
+                        closing = (
+                            f"Perfecto, {customer_name}. Te tengo anotado para "
+                            f"{format_date_spoken(promise_date_obj, language='Spanish')} para el "
+                            f"pago de ${ptp['promise_amount']:.2f}. Gracias por tu tiempo."
+                        )
+                    else:
+                        closing = (
+                            f"Perfect, {customer_name}. I have you down for "
+                            f"{format_date_spoken(promise_date_obj)} for the "
+                            f"${ptp['promise_amount']:.2f} payment. Thank you for your time."
+                        )
             elif ptp["outcome"] == "refused":
-                closing = "I understand. A specialist will follow up with you. Goodbye."
+                closing = "Entiendo. Un especialista se pondrá en contacto contigo. Adiós." if session_config.language == "Spanish" else "I understand. A specialist will follow up with you. Goodbye."
             else:
-                closing = reply_text or "We weren't able to confirm a date. Someone will reach out to you soon. Goodbye."
+                if session_config.language == "Spanish":
+                    closing = reply_text or "No pudimos confirmar una fecha. Alguien se pondrá en contacto contigo pronto. Adiós."
+                else:
+                    closing = reply_text or "We weren't able to confirm a date. Someone will reach out to you soon. Goodbye."
 
             history.append({"role": "agent", "text": closing})
             conversations[session_id] = history
@@ -309,7 +342,7 @@ async def voice_session(websocket: WebSocket):
         # Best-effort persistence if the session ended without a clean terminal turn.
         if session_id is not None and not finalized and call_id is not None:
             try:
-                await _finalize_session(session_id, call_id, amount_owed, started_at)
+                await _finalize_session(session_id, call_id, amount_owed, started_at, session_config)
             except Exception as e:
                 print(f"[ERROR] finalize-on-disconnect failed: {e}")
         if session_id is not None:

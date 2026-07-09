@@ -152,6 +152,9 @@ You are speaking with {customer_name}, who has an outstanding balance.
 Goal: obtain a Promise to Pay (PTP) for ${amount_owed:.2f}.
 
 Rules:
+- ALWAYS respond in {language}, no matter what language the customer speaks or writes in.
+  If they use a different language, respond in {language} and  only if needed gently ask them to continue
+  in {language} if needed — never switch languages yourself.
 - Address the customer by name when it feels natural — not in every line.
 - State the exact dollar amount only twice in the whole conversation: once when
   first proposing or confirming a payment plan, and once in your final closing
@@ -174,7 +177,7 @@ Rules:
 Return strict JSON only: {{"reply": "...", "date_phrase": "verbatim phrase or null", "is_terminal": false}}"""
 
 
-async def agent_reply(history: list, amount_owed: float, customer_name: str) -> dict:
+async def agent_reply(history: list, amount_owed: float, customer_name: str, language: str = "English") -> dict:
     """
     Generate the next agent turn in a multi-turn PTP negotiation.
 
@@ -186,7 +189,7 @@ async def agent_reply(history: list, amount_owed: float, customer_name: str) -> 
         dict with keys: reply (str), is_terminal (bool)
     """
     try:
-        system = AGENT_SYSTEM_PROMPT.format(amount_owed=amount_owed, customer_name=customer_name)
+        system = AGENT_SYSTEM_PROMPT.format(amount_owed=amount_owed, customer_name=customer_name, language=language)
 
         # Convert history to Anthropic message format.
         # Skip leading agent turns — the API requires first message to be "user".

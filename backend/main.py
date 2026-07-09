@@ -29,7 +29,7 @@ env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
 # Max customer turns before we force the conversation to a close.
-MAX_CUSTOMER_TURNS = 4
+MAX_CUSTOMER_TURNS = 6
 
 
 @asynccontextmanager

@@ -2,6 +2,7 @@ import os
 import time
 import base64
 import json
+import re
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -31,6 +32,13 @@ load_dotenv(dotenv_path=env_path)
 # Max customer turns before we force the conversation to a close.
 MAX_CUSTOMER_TURNS = 6
 
+
+def clean_transcript(text: str) -> str:
+    """Strip STT sound-caption artifacts like '(clicks mouse)' or '(music playing)'
+    before the text enters conversation history or gets sent to the LLM."""
+    cleaned = re.sub(r"[\(\[][^\)\]]*[\)\]]", "", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -194,6 +202,7 @@ async def voice_session(websocket: WebSocket):
             if not audio_b64:
                 continue
             speech = await transcribe_speech(base64.b64decode(audio_b64))
+            speech = clean_transcript(speech)
             
             history = conversations.get(session_id, [])
             history.append({"role": "customer", "text": speech})

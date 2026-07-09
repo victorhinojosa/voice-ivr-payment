@@ -6,6 +6,7 @@ from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from dataclasses import dataclass
 import parsedatetime
 
 env_path = Path(__file__).resolve().parent.parent / '.env'
@@ -15,6 +16,20 @@ client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 LOCAL_TZ = ZoneInfo("America/Mexico_City")
 _CAL = parsedatetime.Calendar()
+
+@dataclass
+class SessionConfig:
+    """Configuration for a single voice negotiation session."""
+    language: str = "English"  # "English" or "Spanish"
+    company_name: str = "Our Company"  # Will show in agent greeting
+    debt_type: str = "credit_card"  # "credit_card", "mortgage", "insurance_premium"
+
+    def validate(self) -> None:
+        """Validate config values."""
+        if self.language not in ("English", "Spanish"):
+            raise ValueError(f"Unsupported language: {self.language}")
+        if self.debt_type not in ("credit_card", "mortgage", "insurance_premium"):
+            raise ValueError(f"Unsupported debt_type: {self.debt_type}")
 
 
 def local_today() -> date:
@@ -57,6 +72,23 @@ def format_date_spoken(d: date) -> str:
     the weekday and the date come from the same resolved `date` object."""
     return f"{d.strftime('%A')}, {d.strftime('%B')} {_ordinal(d.day)}"
 
+DEBT_TERMINOLOGY = {
+    "credit_card": {
+        "label": "credit card balance",
+        "verb": "pay",
+        "article": "your",
+    },
+    "mortgage": {
+        "label": "mortgage payment",
+        "verb": "make a payment on",
+        "article": "your",
+    },
+    "insurance_premium": {
+        "label": "insurance premium",
+        "verb": "pay",
+        "article": "your",
+    },
+}
 
 PTP_PROMPT = """You are a debt collection AI analyzing a call transcript to determine if the customer made a Promise to Pay (PTP).
 

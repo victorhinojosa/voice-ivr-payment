@@ -84,8 +84,8 @@ async def root():
 #     {"type": "error",    "message": "..."}
 # ---------------------------------------------------------------------------
 
-async def _send_agent_turn(websocket: WebSocket, text: str, is_terminal: bool):
-    audio_bytes = await synthesize_speech(text)
+async def _send_agent_turn(websocket: WebSocket, text: str, is_terminal: bool, language: str = "English"):
+    audio_bytes = await synthesize_speech(text, language=language)
     await websocket.send_json({
         "type": "agent",
         "text": text,
@@ -141,9 +141,9 @@ async def voice_session(websocket: WebSocket):
     amount_owed = 1000.0
     started_at = time.monotonic()
     finalized = False
+    session_config = None
 
     try:
-
         # Wait for the client's "start" message.
         first = await websocket.receive_json()
         if first.get("type") != "start":
@@ -151,6 +151,20 @@ async def voice_session(websocket: WebSocket):
             return
 
         session_id = first.get("session_id") or f"web-{int(started_at * 1000)}"
+        
+        # Parse session config from start message with defaults
+        from claude_agent import SessionConfig
+        session_config = SessionConfig(
+            language=first.get("language", "English"),
+            company_name=first.get("company_name", "Our Company"),
+            debt_type=first.get("debt_type", "credit_card"),
+        )
+        try:
+            session_config.validate()
+        except ValueError as e:
+            await websocket.send_json({"type": "error", "message": f"Invalid config: {e}"})
+            return
+        print(f"[DEBUG] Session config: language={session_config.language}, company={session_config.company_name}, debt_type={session_config.debt_type}")
 
         # Identity and debt amount come from the customer record — the source of truth.
         customer_id = first.get("customer_id")
@@ -185,7 +199,7 @@ async def voice_session(websocket: WebSocket):
             f"balance of ${amount_owed:.2f}. When would you be able to make a payment?"
         )
         conversations[session_id] = [{"role": "agent", "text": opening}]
-        await _send_agent_turn(websocket, opening, False)
+        await _send_agent_turn(websocket, opening, False, language=session_config.language)
 
         # Turn loop.
         while True:
@@ -218,7 +232,7 @@ async def voice_session(websocket: WebSocket):
                 conversations[session_id] = history
                 ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
                 finalized = True
-                await _send_agent_turn(websocket, reply_text, True)
+                await _send_agent_turn(websocket, reply_text, True, language=session_config.language)
                 await websocket.send_json({
                     "type": "complete",
                     "outcome": ptp["outcome"],
@@ -247,7 +261,7 @@ async def voice_session(websocket: WebSocket):
                 conversations[session_id] = history
 
                 if not is_terminal:
-                    await _send_agent_turn(websocket, reply_text, False)
+                    await _send_agent_turn(websocket, reply_text, False, language=session_config.language)
                     continue
 
             # Terminal turn — extract PTP and persist.
@@ -274,7 +288,7 @@ async def voice_session(websocket: WebSocket):
             history.append({"role": "agent", "text": closing})
             conversations[session_id] = history
 
-            await _send_agent_turn(websocket, closing, True)
+            await _send_agent_turn(websocket, closing, True, language=session_config.language)
             await websocket.send_json({
                 "type": "complete",
                 "outcome": ptp["outcome"],

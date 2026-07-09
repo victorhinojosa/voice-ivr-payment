@@ -2,6 +2,7 @@ import os
 import time
 import base64
 import json
+import re
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -12,7 +13,8 @@ from db import (
     create_call, update_call_sid, complete_call,
     get_all_calls,
 )
-from claude_agent import extract_ptp, agent_reply
+from datetime import date
+from claude_agent import extract_ptp, agent_reply, format_date_spoken
 from customers.router import router as customers_router
 from customers.repository import get_customer_by_id
 from voice_io import synthesize_speech, transcribe_speech
@@ -28,8 +30,15 @@ env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
 # Max customer turns before we force the conversation to a close.
-MAX_CUSTOMER_TURNS = 4
+MAX_CUSTOMER_TURNS = 6
 
+
+def clean_transcript(text: str) -> str:
+    """Strip STT sound-caption artifacts like '(clicks mouse)' or '(music playing)'
+    before the text enters conversation history or gets sent to the LLM."""
+    cleaned = re.sub(r"[\(\[][^\)\]]*[\)\]]", "", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -193,6 +202,7 @@ async def voice_session(websocket: WebSocket):
             if not audio_b64:
                 continue
             speech = await transcribe_speech(base64.b64decode(audio_b64))
+            speech = clean_transcript(speech)
             
             history = conversations.get(session_id, [])
             history.append({"role": "customer", "text": speech})
@@ -209,7 +219,7 @@ async def voice_session(websocket: WebSocket):
                 ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
                 finalized = True
                 await _send_agent_turn(websocket, reply_text, True)
-                await _send_agent_turn({
+                await websocket.send_json({
                     "type": "complete",
                     "outcome": ptp["outcome"],
                     "promise_date": ptp["promise_date"],
@@ -225,37 +235,47 @@ async def voice_session(websocket: WebSocket):
             force_terminal = customer_turns >= MAX_CUSTOMER_TURNS
 
             if force_terminal:
-                reply_text = "We weren't able to confirm a date. Someone will reach out to you soon. Goodbye."
+                # Don't decide what to say yet — we don't know the real outcome until
+                # extraction runs. Skip the model call for this turn.
+                reply_text = None
                 is_terminal = True
             else:
                 ar = await agent_reply(history, amount_owed, customer_name)
                 reply_text = ar["reply"]
                 is_terminal = ar["is_terminal"]
+                history.append({"role": "agent", "text": reply_text})
+                conversations[session_id] = history
 
-            history.append({"role": "agent", "text": reply_text})
-            conversations[session_id] = history
-
-            if not is_terminal:
-                await _send_agent_turn(websocket, reply_text, False)
-                continue
+                if not is_terminal:
+                    await _send_agent_turn(websocket, reply_text, False)
+                    continue
 
             # Terminal turn — extract PTP and persist.
             ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
             finalized = True
 
             if ptp["outcome"] == "promise_made":
-                closing = (
-                    f"Thank you. We've recorded your payment commitment of "
-                    f"${ptp['promise_amount']:.2f} on {ptp['promise_date']}. "
-                    "You'll receive a confirmation shortly. Goodbye."
-                )
+                if reply_text is not None:
+                    closing = reply_text  # natural model-generated confirmation, already correct
+                else:
+                    # force_terminal path — the model never got to speak a natural closing,
+                    # so build one from the actual extracted result instead of guessing.
+                    promise_date_obj = date.fromisoformat(ptp["promise_date"])
+                    closing = (
+                        f"Perfect, {customer_name}. I have you down for "
+                        f"{format_date_spoken(promise_date_obj)} for the "
+                        f"${ptp['promise_amount']:.2f} payment. Thank you for your time."
+                    )
             elif ptp["outcome"] == "refused":
                 closing = "I understand. A specialist will follow up with you. Goodbye."
             else:
-                closing = reply_text
+                closing = reply_text or "We weren't able to confirm a date. Someone will reach out to you soon. Goodbye."
+
+            history.append({"role": "agent", "text": closing})
+            conversations[session_id] = history
 
             await _send_agent_turn(websocket, closing, True)
-            await _send_agent_turn({
+            await websocket.send_json({
                 "type": "complete",
                 "outcome": ptp["outcome"],
                 "promise_date": ptp["promise_date"],

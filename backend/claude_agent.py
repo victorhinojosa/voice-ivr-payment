@@ -1,37 +1,80 @@
 import json
 import os
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
+from typing import Optional
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 from pathlib import Path
+from zoneinfo import ZoneInfo
+import parsedatetime
 
 env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
 client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+LOCAL_TZ = ZoneInfo("America/Mexico_City")
+_CAL = parsedatetime.Calendar()
+
+
+def local_today() -> date:
+    return datetime.now(LOCAL_TZ).date()
+
+
+def _local_now_naive() -> datetime:
+    """Naive datetime in local time, used as the reference point for parsedatetime."""
+    return datetime.now(LOCAL_TZ).replace(tzinfo=None)
+
+
+def resolve_date_phrase(phrase: Optional[str]) -> Optional[date]:
+    """
+    Deterministically resolve a raw natural-language timing phrase (e.g. "next
+    Thursday", "tomorrow", "in two weeks") into an actual date, using the
+    parsedatetime library rather than asking the LLM to do this arithmetic.
+
+    LLMs are unreliable at exactly this kind of weekday/offset math even when
+    given today's date or a lookup table — this removes that failure mode
+    entirely by handing it to deterministic code.
+    """
+    if not phrase:
+        return None
+    result, parse_status = _CAL.parseDT(phrase, sourceTime=_local_now_naive())
+    if parse_status == 0:
+        return None
+    return result.date()
+
+
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def format_date_spoken(d: date) -> str:
+    """e.g. 'Thursday, July 16th' — always internally consistent since both
+    the weekday and the date come from the same resolved `date` object."""
+    return f"{d.strftime('%A')}, {d.strftime('%B')} {_ordinal(d.day)}"
+
+
 PTP_PROMPT = """You are a debt collection AI analyzing a call transcript to determine if the customer made a Promise to Pay (PTP).
 
-Today's date: {today}
 Amount owed: ${amount_owed:.2f}
 Customer transcript: {transcript}
 
-Determine the outcome and extract any payment commitment details.
+Determine the outcome and extract the payment commitment details.
 
 Rules:
 - outcome must be exactly one of: "promise_made", "refused", "no_commitment"
 - "promise_made": customer expresses willingness or agreement to pay, even without a specific date (e.g. "yes", "sure", "okay", "I'll pay", "sounds good")
-  - If no date is mentioned, default promise_date to 3 days from today
-  - If no amount is mentioned, use amount_owed as promise_amount
-  - promise_date and promise_amount must always be non-null when outcome is promise_made
 - "refused": customer explicitly refuses or says they cannot pay (e.g. "I won't pay", "I can't pay", "no", "I refuse", "I don't owe anything")
 - "no_commitment": genuinely ambiguous, off-topic, or unclear — the customer neither agrees nor refuses
-- Resolve relative dates (e.g. "next Friday", "tomorrow") to absolute dates using today's date
-- promise_date must be in ISO format "YYYY-MM-DD"
-- promise_amount is a float (e.g. 200.0)
+- date_phrase: extract the customer's own words describing WHEN they will pay, VERBATIM as they said it (e.g. "next Thursday", "tomorrow", "in two weeks", "the 20th"). Do NOT resolve, calculate, or convert this into an actual calendar date yourself — just extract the raw phrase exactly as spoken. If no timing was mentioned at all, set this to null.
+- promise_amount: the dollar amount mentioned by the customer, or null if none was mentioned
 
 Respond with strict JSON only, no markdown, no explanation:
-{{"outcome": "...", "promise_date": "YYYY-MM-DD or null", "promise_amount": 0.0}}"""
+{{"outcome": "...", "date_phrase": "verbatim phrase or null", "promise_amount": 0.0}}"""
 
 
 async def extract_ptp(transcript: str, amount_owed: float) -> dict:
@@ -46,11 +89,7 @@ async def extract_ptp(transcript: str, amount_owed: float) -> dict:
         dict with keys: outcome, promise_date (ISO string or None), promise_amount (float or None)
     """
     try:
-        prompt = PTP_PROMPT.format(
-            today=date.today().isoformat(),
-            amount_owed=amount_owed,
-            transcript=transcript
-        )
+        prompt = PTP_PROMPT.format(amount_owed=amount_owed, transcript=transcript)
 
         message = await client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -70,25 +109,30 @@ async def extract_ptp(transcript: str, amount_owed: float) -> dict:
         result = json.loads(response_text)
 
         outcome = result.get("outcome", "no_commitment")
-        promise_date = result.get("promise_date")
+        date_phrase = result.get("date_phrase")
         promise_amount = result.get("promise_amount")
 
-        # Normalize null-like values
-        if promise_date in (None, "null", ""):
-            promise_date = None
+        if date_phrase in (None, "null", ""):
+            date_phrase = None
         if promise_amount in (None, "null", ""):
             promise_amount = None
         else:
             promise_amount = float(promise_amount)
 
+        # Resolve the raw phrase deterministically instead of trusting model-computed dates.
+        promise_date_obj = resolve_date_phrase(date_phrase)
+        print(f"[DEBUG] date_phrase={date_phrase!r} resolved to {promise_date_obj}")
+
         # Apply Python-side defaults for promise_made
         if outcome == "promise_made":
-            if promise_date is None:
-                promise_date = (date.today() + timedelta(days=3)).isoformat()
-                print(f"[DEBUG] No promise_date from Claude — defaulting to +3 days: {promise_date}")
+            if promise_date_obj is None:
+                promise_date_obj = local_today() + timedelta(days=3)
+                print(f"[DEBUG] No usable date_phrase — defaulting to +3 days: {promise_date_obj.isoformat()}")
             if promise_amount is None:
                 promise_amount = amount_owed
                 print(f"[DEBUG] No promise_amount from Claude — defaulting to amount_owed: {promise_amount}")
+
+        promise_date = promise_date_obj.isoformat() if promise_date_obj else None
 
         print(f"[DEBUG] extract_ptp result: outcome='{outcome}', date={promise_date}, amount={promise_amount}")
         return {
@@ -104,22 +148,26 @@ async def extract_ptp(transcript: str, amount_owed: float) -> dict:
 
 AGENT_SYSTEM_PROMPT = """You are a professional, empathetic debt collections agent.
 
-Today's date is {today}.
 You are speaking with {customer_name}, who has an outstanding balance.
 Goal: obtain a Promise to Pay (PTP) for ${amount_owed:.2f}.
 
 Rules:
 - Address the customer by name when it feels natural — not in every line.
-- If the customer provides a timeframe (e.g., "tomorrow", "Friday", "end of the month"), 
-  INTERPRET the date based on {today} and confirm it back to them naturally.
-- DO NOT ask for a "specific date" or "time" if the customer's intent is clear. 
-- Time of day is irrelevant; do not ask for it.
+- If the customer mentions a timeframe (e.g., "tomorrow", "next Thursday", "end of the month"),
+  do NOT try to calculate or state the actual calendar date yourself — you are unreliable at this
+  and must not attempt it. Instead:
+  - Set "date_phrase" to the customer's own words describing the timing, verbatim.
+  - In "reply", use the literal placeholder {{DATE}} wherever you would normally say the exact
+    date (e.g. "Just to confirm, that's {{DATE}} for the $3,200.00 payment — does that work for
+    you?"). This placeholder will be substituted with the correct date automatically. Never write
+    out a specific weekday name or calendar date yourself, anywhere in the reply.
 - If they agree but give NO timeframe at all, only then ask: "When would you be able to do that?"
-- If vague → ask a focused clarifying follow-up.
+  (no placeholder needed here, and date_phrase should be null)
+- If vague → ask a focused clarifying follow-up, and set date_phrase to null.
 - After a clear commitment OR after 3 customer turns without progress → set is_terminal: true.
 - Keep replies under 2 sentences. Be polite, professional, never threatening.
 
-Return strict JSON only: {{"reply": "...", "is_terminal": false}}"""
+Return strict JSON only: {{"reply": "...", "date_phrase": "verbatim phrase or null", "is_terminal": false}}"""
 
 
 async def agent_reply(history: list, amount_owed: float, customer_name: str) -> dict:
@@ -134,7 +182,7 @@ async def agent_reply(history: list, amount_owed: float, customer_name: str) -> 
         dict with keys: reply (str), is_terminal (bool)
     """
     try:
-        system = AGENT_SYSTEM_PROMPT.format(amount_owed=amount_owed, today=date.today().isoformat(), customer_name=customer_name)
+        system = AGENT_SYSTEM_PROMPT.format(amount_owed=amount_owed, customer_name=customer_name)
 
         # Convert history to Anthropic message format.
         # Skip leading agent turns — the API requires first message to be "user".
@@ -168,7 +216,22 @@ async def agent_reply(history: list, amount_owed: float, customer_name: str) -> 
             raw = raw.rstrip("`").strip()
         result = json.loads(raw)
         reply = result.get("reply", "Could you confirm when you'd be able to make a payment?")
+        date_phrase = result.get("date_phrase")
         is_terminal = bool(result.get("is_terminal", False))
+
+        if date_phrase in (None, "null", ""):
+            date_phrase = None
+
+        # Resolve the date deterministically and substitute it into the reply,
+        # rather than trusting whatever the model wrote in place of {DATE}.
+        if "{DATE}" in reply:
+            resolved = resolve_date_phrase(date_phrase)
+            if resolved is None:
+                resolved = local_today() + timedelta(days=3)
+                print(f"[DEBUG] agent_reply: date_phrase={date_phrase!r} unresolvable — defaulting to +3 days")
+            spoken = format_date_spoken(resolved)
+            reply = reply.replace("{DATE}", spoken)
+            print(f"[DEBUG] agent_reply: date_phrase={date_phrase!r} -> {spoken!r}")
 
         print(f"[DEBUG] agent_reply: is_terminal={is_terminal}, reply='{reply}'")
         return {"reply": reply, "is_terminal": is_terminal}

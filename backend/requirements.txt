@@ -6,3 +6,5 @@ python-dotenv==1.0.1
 asyncpg==0.31.0
 pydantic==2.9.2
 elevenlabs==2.56.0
+tzdata==2026.2
+parsedatetime==2.6

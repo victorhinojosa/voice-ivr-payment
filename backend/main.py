@@ -209,7 +209,7 @@ async def voice_session(websocket: WebSocket):
                 ptp = await _finalize_session(session_id, call_id, amount_owed, started_at)
                 finalized = True
                 await _send_agent_turn(websocket, reply_text, True)
-                await _send_agent_turn({
+                await websocket.send_json({
                     "type": "complete",
                     "outcome": ptp["outcome"],
                     "promise_date": ptp["promise_date"],
@@ -244,18 +244,14 @@ async def voice_session(websocket: WebSocket):
             finalized = True
 
             if ptp["outcome"] == "promise_made":
-                closing = (
-                    f"Thank you. We've recorded your payment commitment of "
-                    f"${ptp['promise_amount']:.2f} on {ptp['promise_date']}. "
-                    "You'll receive a confirmation shortly. Goodbye."
-                )
+                closing = reply_text  
             elif ptp["outcome"] == "refused":
                 closing = "I understand. A specialist will follow up with you. Goodbye."
             else:
                 closing = reply_text
 
             await _send_agent_turn(websocket, closing, True)
-            await _send_agent_turn({
+            await websocket.send_json({
                 "type": "complete",
                 "outcome": ptp["outcome"],
                 "promise_date": ptp["promise_date"],

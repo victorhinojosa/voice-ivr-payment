@@ -28,7 +28,15 @@ function blobToBase64(blob) {
   });
 }
 
-export default function VoiceSession({ onSessionComplete, customerId, customerName }) {
+export default function VoiceSession({
+  onSessionComplete,
+  customerId,
+  customerName,
+  language = 'English',
+  debtType = 'credit_card',
+  companyName = 'Call Center AI',
+  onSessionStart,
+}) {
 
   const [status, setStatus] = useState('idle'); // status: 'idle' | 'connecting' | 'speaking' | 'listening' | 'thinking' | 'done' | 'error'
   const [turns, setTurns] = useState([]); // {role: 'agent'|'customer', text}
@@ -103,12 +111,24 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
     finishedRef.current = false;
     setStatus('connecting');
 
+    if (onSessionStart) onSessionStart();
+
     const sessionId = genSessionId();
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'start', session_id: sessionId, customer_id: customerId, customer_name: customerName }));
+      // Send start message with language, debt_type, and company_name
+      ws.send(JSON.stringify({
+        type: 'start',
+        session_id: sessionId,
+        customer_id: customerId,
+        customer_name: customerName,
+        language: language,
+        debt_type: debtType,
+        company_name: companyName,
+      }));
+      console.log(`[DEBUG] WebSocket start message: language=${language}, debt_type=${debtType}, company_name=${companyName}`);
     };
 
     ws.onmessage = (event) => {
@@ -130,13 +150,16 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
         setError(msg.message || 'Session error.');
         setStatus('error');
         cleanup();
+        if (onSessionComplete) onSessionComplete();
       }
     };
 
     ws.onerror = () => {
       if (finishedRef.current) return;
+      finishedRef.current = true;
       setError('Connection error. Is the backend running?');
       setStatus('error');
+      if (onSessionComplete) onSessionComplete();
     };
 
     ws.onclose = () => {
@@ -145,7 +168,7 @@ export default function VoiceSession({ onSessionComplete, customerId, customerNa
         setStatus(prev => (prev === 'error' ? 'error' : 'done'));
       }
     };
-  }, [speak, cleanup, onSessionComplete, customerId, customerName]);
+  }, [speak, cleanup, onSessionComplete, customerId, customerName, language, debtType, companyName, onSessionStart]);
 
 
   const handleEnd = useCallback(() => {

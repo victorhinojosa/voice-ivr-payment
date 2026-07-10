@@ -14,7 +14,7 @@ from db import (
     get_all_calls,
 )
 from datetime import date
-from claude_agent import extract_ptp, agent_reply, format_date_spoken, SessionConfig
+from claude_agent import extract_ptp, agent_reply, format_date_spoken, format_amount_for_speech, SessionConfig
 from customers.router import router as customers_router
 from customers.repository import get_customer_by_id
 from voice_io import synthesize_speech, transcribe_speech
@@ -85,10 +85,11 @@ async def root():
 # ---------------------------------------------------------------------------
 
 async def _send_agent_turn(websocket: WebSocket, text: str, is_terminal: bool, language: str = "English"):
-    audio_bytes = await synthesize_speech(text, language=language)
+    speech_text = format_amount_for_speech(text, language=language)
+    audio_bytes = await synthesize_speech(speech_text, language=language)
     await websocket.send_json({
         "type": "agent",
-        "text": text,
+        "text": text,  # keep original with "$" for the transcript/UI
         "audio": base64.b64encode(audio_bytes).decode(),
         "is_terminal": is_terminal,
     })

@@ -108,24 +108,24 @@ async def complete_call(
         )
 
 
-async def update_call_duration(call_sid: str, duration_seconds: int) -> None:
-    """Persist call duration received from Twilio's completed status callback."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE calls SET duration_seconds = $1 WHERE call_sid = $2
-        """, duration_seconds, call_sid)
+# async def update_call_duration(call_sid: str, duration_seconds: int) -> None:
+#     """Persist call duration received from Twilio's completed status callback."""
+#     pool = await get_pool()
+#     async with pool.acquire() as conn:
+#         await conn.execute("""
+#             UPDATE calls SET duration_seconds = $1 WHERE call_sid = $2
+#         """, duration_seconds, call_sid)
 
 
-async def mark_no_answer(call_id: int) -> None:
-    """Mark a call as no_answer when the customer didn't pick up."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE calls
-            SET status = 'no_answer', completed_at = $1
-            WHERE id = $2
-        """, datetime.utcnow(), call_id)
+# async def mark_no_answer(call_id: int) -> None:
+#     """Mark a call as no_answer when the customer didn't pick up."""
+#     pool = await get_pool()
+#     async with pool.acquire() as conn:
+#         await conn.execute("""
+#             UPDATE calls
+#             SET status = 'no_answer', completed_at = $1
+#             WHERE id = $2
+#         """, datetime.utcnow(), call_id)
 
 
 async def get_all_calls() -> list[dict]:
@@ -144,7 +144,7 @@ async def get_all_calls() -> list[dict]:
         return [dict(row) for row in rows]
 
 
-async def get_call_by_sid(call_sid: str) -> Optional[dict]:
+# async def get_call_by_sid(call_sid: str) -> Optional[dict]:
     """Fetch a single call by Twilio SID — used during webhook processing."""
     pool = await get_pool()
     async with pool.acquire() as conn:

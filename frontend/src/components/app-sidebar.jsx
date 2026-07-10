@@ -1,4 +1,4 @@
-import { Users, BarChart3, Waypoints } from 'lucide-react';
+import { Users, BarChart3, Waypoints, Pencil } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const nav = [
@@ -6,15 +6,25 @@ const nav = [
   { icon: BarChart3, label: 'Analytics', active: false, soon: true },
 ];
 
-export function AppSidebar() {
+export function AppSidebar({ companyName, onEditCompany }) {
   return (
     <aside className="hidden w-64 shrink-0 flex-col bg-sidebar px-4 py-6 text-sidebar-foreground lg:flex sticky top-0 h-screen overflow-y-auto">
       <div className="flex items-center gap-2.5 px-2">
-        <div className="flex size-9 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
+        <div className="flex size-9 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shrink-0">
           <Waypoints className="size-5" />
         </div>
-        <div className="leading-tight">
-          <p className="text-sm font-semibold text-white">Call Center AI</p>
+        <div className="leading-tight min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-sm font-semibold text-white truncate">{companyName}</p>
+            <button
+              type="button"
+              onClick={onEditCompany}
+              className="text-sidebar-foreground/50 hover:text-white transition-colors shrink-0"
+              title="Edit company name"
+            >
+              <Pencil className="size-3" />
+            </button>
+          </div>
           <p className="text-xs text-sidebar-foreground/60">Autonomous Collections</p>
         </div>
       </div>

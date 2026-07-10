@@ -159,7 +159,7 @@ function AboutDemoModal({ open, onClose }) {
       <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
         <h2 className="text-base font-semibold text-foreground mb-2">About this demo</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          This is a working demo of an autonomous voice collections agent. Add yourself as a customer and click "Start call" to talk to the AI live, no phone number needed, it runs right in your browser.
+        This is a working demo of an autonomous voice collections agent. Add yourself as a customer and click "Start call" to talk to the AI live, no phone number needed, it runs right in your browser. Before starting, pick a language (English/Spanish) and debt type, the agent adapts its script, terminology, and voice accordingly.
         </p>
         <div className="flex justify-end gap-2">
           <a href="https://github.com/victorhinojosa/voice-ivr-payment" target="_blank" rel="noreferrer"

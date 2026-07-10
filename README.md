@@ -7,6 +7,7 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
 - **In-browser voice session** — the agent speaks and the user replies through their microphone, entirely in the browser (no telephony provider)
 - **Natural voice + automatic turn detection** — ElevenLabs TTS for realistic speech, ElevenLabs Scribe for transcription, and client-side VAD (Silero, via ONNX Runtime Web) to detect when the user starts/stops talking
 - **Multi-turn AI negotiation** — Claude handles the full conversation, offers plans, and adapts to responses
+- **Configurable per session** — company name, debt type (credit card, mortgage, insurance premium), and language (English/Spanish) are set per call, no code changes needed
 - **Promise-to-Pay extraction** — after the session, Claude analyzes the transcript to extract outcome, date, and amount
 - **Real-time dashboard** — monitor sessions, outcomes, and full transcripts in the browser
 - **Supabase (Postgres) persistence** — all sessions and config stored durably in a hosted database, auto-provisioned on first run
@@ -67,6 +68,13 @@ AI voice agent that autonomously negotiates real payment commitments in a **brow
 | `refused`       | Customer explicitly refused                |
 | `no_commitment` | Ambiguous — requires follow-up             |
 
+### Supported Configurations
+
+| Option       | Values                                                |
+| ------------ | ------------------------------------------------------|
+| Language     | English, Spanish (agent never code-switches mid-call) |
+| Debt type    | Credit Card, Mortgage, Insurance Premium              |
+| Company name | Any string, editable from the sidebar                 |
 
 ## Quick Start
 
@@ -157,7 +165,7 @@ Open `http://localhost:3000`
 
 ```
 client → server:
-  {"type": "start", "session_id": "<uuid>", "customer_id": <id>, "customer_name": "<name>"}  # open the session
+  {"type": "start", "session_id": "<uuid>", "customer_id": <id>, "customer_name": "<name>", "language": "English"|"Spanish", "debt_type": "credit_card"|"mortgage"|"insurance_premium", "company_name": "<name>"}  # open the session
   {"type": "user",  "text": "<recognized speech>"}
   {"type": "end"}                              # user ended early
 

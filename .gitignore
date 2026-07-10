@@ -13,6 +13,7 @@ env/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
 
 # Node
 node_modules/

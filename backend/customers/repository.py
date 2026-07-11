@@ -1,5 +1,5 @@
 from core.database import get_pool
-from customers.schemas import CustomerCreate, CustomerOut, CustomerUpdate
+from customers.schemas import CustomerCreate, CustomerUpdate
 
 async def create_customer(customer: CustomerCreate) -> dict:
     pool = await get_pool()

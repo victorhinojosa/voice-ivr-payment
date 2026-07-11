@@ -1,65 +1,21 @@
-import asyncpg
-import os
-import sys
-from typing import Optional
-from dotenv import load_dotenv
+from calls.schemas import CallCreate
+from core.database import get_pool
 from datetime import datetime
+from typing import Optional
 
-# Fix for Windows asyncpg compatibility
-if sys.platform == 'win32':
-    import asyncio
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-load_dotenv()
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-_pool: Optional[asyncpg.Pool] = None
-
-async def get_pool() -> asyncpg.Pool:
-    """Get or create the connection pool."""
-    global _pool
-    if _pool is None:
-        if not DATABASE_URL:
-            raise ValueError("DATABASE_URL environment variable is not set")
-        _pool = await asyncpg.create_pool(
-            DATABASE_URL,
-            min_size=2,
-            max_size=10,
-            command_timeout=60
-        )
-    return _pool
-
-
-async def close_pool():
-    """Close the connection pool."""
-    global _pool
-    if _pool is not None:
-        await _pool.close()
-        _pool = None
-
-
-# ---------------------------------------------------------------------------
-# Call helpers
-# ---------------------------------------------------------------------------
-
-async def create_call(
-    phone_number: str,
-    amount_owed: float,
-    customer_id: Optional[int] = None,
-    customer_name: Optional[str] = None,
-    ) -> int:
+async def create_call(call: CallCreate) -> int:
     """
     Insert a new call row when an outbound call is initiated.
     Returns the new call ID.
     """
     pool = await get_pool()
+
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             INSERT INTO calls (phone_number, amount_owed, status, customer_id, customer_name)
             VALUES ($1, $2, 'initiated', $3, $4)
             RETURNING id
-        """, phone_number, amount_owed, customer_id, customer_name)
+        """, call.phone_number, call.amount_owed, call.customer_id, call.customer_name)
         return row['id']
 
 
@@ -108,26 +64,6 @@ async def complete_call(
         )
 
 
-async def update_call_duration(call_sid: str, duration_seconds: int) -> None:
-    """Persist call duration received from Twilio's completed status callback."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE calls SET duration_seconds = $1 WHERE call_sid = $2
-        """, duration_seconds, call_sid)
-
-
-async def mark_no_answer(call_id: int) -> None:
-    """Mark a call as no_answer when the customer didn't pick up."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE calls
-            SET status = 'no_answer', completed_at = $1
-            WHERE id = $2
-        """, datetime.utcnow(), call_id)
-
-
 async def get_all_calls() -> list[dict]:
     """Retrieve all calls ordered by most recent first."""
     pool = await get_pool()
@@ -142,13 +78,3 @@ async def get_all_calls() -> list[dict]:
             ORDER BY initiated_at DESC
         """)
         return [dict(row) for row in rows]
-
-
-async def get_call_by_sid(call_sid: str) -> Optional[dict]:
-    """Fetch a single call by Twilio SID — used during webhook processing."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("""
-            SELECT * FROM calls WHERE call_sid = $1
-        """, call_sid)
-        return dict(row) if row else None

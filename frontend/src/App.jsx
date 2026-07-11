@@ -189,7 +189,7 @@ function App() {
       const r = await fetch(`${API_URL}/api/calls`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
-      setCalls(data.calls);
+      setCalls(Array.isArray(data) ? data : []);
       setCallsError(null);
     } catch (err) {
       setCallsError('Failed to load call history.');

@@ -16,7 +16,7 @@ class CustomerUpdate(BaseModel):
     amount_owed: float | None = None
     status: str | None = None
 
-class CustomerOut(CustomerBase):
+class CustomerResponse(CustomerBase):
     id: int
     created_at: datetime
     updated_at: datetime

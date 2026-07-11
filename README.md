@@ -131,6 +131,18 @@ cd frontend
 npm start
 ```
 
+## Running Tests
+
+Unit tests cover the deterministic core logic (date phrase resolution, transcript sanitization) — no API keys or database required.
+
+```bash
+cd backend
+pip install -r requirements.txt
+pytest
+```
+
+> Conversation-flow and Claude/ElevenLabs API-integration tests are deferred until the voice-transport refactor lands.
+
 ## Dashboard
 
 Open `http://localhost:3000`

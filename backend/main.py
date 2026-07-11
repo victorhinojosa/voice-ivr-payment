@@ -1,4 +1,3 @@
-import os
 import time
 import base64
 import json
@@ -10,10 +9,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from core.database import close_pool
 from calls.repository import create_call, update_call_sid, complete_call,get_all_calls
-# from db import (update_call_sid, complete_call,get_all_calls,)
 from datetime import date
-from claude_agent import extract_ptp, agent_reply, format_date_spoken, format_amount_for_speech
+from claude_agent import  format_amount_for_speech
+from conversation.agent import extract_ptp, agent_reply
 from conversation.schemas import SessionConfig
+from conversation.dates import format_date_spoken
 from customers.router import router as customers_router
 from customers.repository import get_customer_by_id
 from voice_io import synthesize_speech, transcribe_speech
@@ -354,17 +354,6 @@ async def voice_session(websocket: WebSocket):
         except Exception:
             pass
         print(f"[DEBUG] ========== WEBSOCKET SESSION CLOSED (session={session_id}) ==========")
-
-
-# ---------------------------------------------------------------------------
-# Dashboard API
-# ---------------------------------------------------------------------------
-
-# @app.get("/api/calls")
-# async def get_calls():
-#     """Retrieve all call logs for the dashboard."""
-#     calls = await get_all_calls()
-#     return {"calls": calls}
 
 
 if __name__ == "__main__":

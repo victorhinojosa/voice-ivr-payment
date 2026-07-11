@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from core.database import close_pool
 from calls.repository import create_call, update_call_sid, complete_call,get_all_calls
 from datetime import date
-from claude_agent import  format_amount_for_speech
+from voice.formatting import  format_amount_for_speech
 from conversation.agent import extract_ptp, agent_reply
 from conversation.schemas import SessionConfig
 from conversation.dates import format_date_spoken

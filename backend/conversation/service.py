@@ -27,6 +27,7 @@ import json
 from fastapi import WebSocket, WebSocketDisconnect
 
 from calls.repository import create_call, update_call_sid, complete_call
+from calls.schemas import CallCreate
 from core.exceptions import AppError, NotFoundError, ValidationError
 from customers.repository import get_customer_by_id
 from conversation.agent import extract_ptp, agent_reply
@@ -188,12 +189,12 @@ async def run_voice_session(websocket: WebSocket):
         started_at = time.monotonic()
 
         # Create the call row, linked to the customer and snapshotting their name.
-        call_id = await create_call(
+        call_id = await create_call(CallCreate(
             phone_number=debtor_phone,
             amount_owed=amount_owed,
             customer_id=customer["id"],
             customer_name=customer_name,
-        )
+        ))
         await update_call_sid(call_id, session_id)
         print(f"[DEBUG] Created call id={call_id}, customer_id={customer['id']}, amount_owed={amount_owed}")
 

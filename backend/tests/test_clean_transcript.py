@@ -2,7 +2,7 @@
 Unit tests for clean_transcript (backend/main.py) — strips STT
 sound-caption artifacts like "(clicks mouse)" or "[music playing]".
 """
-from main import clean_transcript
+from voice.formatting import clean_transcript
 
 
 class TestCleanTranscript:

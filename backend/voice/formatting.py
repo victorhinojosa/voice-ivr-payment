@@ -1,9 +1,21 @@
 import re
-from dotenv import load_dotenv
-from pathlib import Path
 
-env_path = Path(__file__).resolve().parent.parent / '.env'
-load_dotenv(dotenv_path=env_path)
+# This module is pure string work — no env vars are read here, so there is
+# deliberately no load_dotenv (the old one pointed at the wrong path anyway
+# and loaded nothing this file uses).
+
+# =====================================================================
+# STT transcript cleanup
+# =====================================================================
+
+def clean_transcript(text: str) -> str:
+    """Strip STT sound-caption artifacts like '(clicks mouse)' or
+    '(music playing)' before the text enters conversation history or gets
+    sent to the LLM."""
+    cleaned = re.sub(r"[\(\[][^\)\]]*[\)\]]", "", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
 
 # =====================================================================
 # TTS-Friendly Amount Formatting (spelled out in words)

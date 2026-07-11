@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from core.database import close_pool
+from core.exceptions import register_exception_handlers
 from customers.router import router as customers_router
 from calls.router import router as calls_router
 from conversation.router import router as conversation_router
@@ -31,6 +32,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    register_exception_handlers(app)
 
     app.include_router(customers_router)
     app.include_router(calls_router)

@@ -27,6 +27,7 @@ import json
 from fastapi import WebSocket, WebSocketDisconnect
 
 from calls.repository import create_call, update_call_sid, complete_call
+from core.exceptions import AppError, NotFoundError, ValidationError
 from customers.repository import get_customer_by_id
 from conversation.agent import extract_ptp, agent_reply
 from conversation.schemas import SessionConfig
@@ -102,6 +103,14 @@ def _log_turn(role: str, text: str, language: str = "English"):
     print(f"{prefix} [LANG={language}] {text[:80]}...")
 
 
+async def _send_error(websocket: WebSocket, message: str):
+    """Emit the protocol error frame, tolerating an already-closed socket."""
+    try:
+        await websocket.send_json({"type": "error", "message": message})
+    except Exception:
+        pass
+
+
 def _build_opening(config: SessionConfig, customer_name: str, amount_owed: float) -> str:
     """Agent's first line, adapted to language / company / debt type."""
     if config.language == "Spanish":
@@ -146,8 +155,7 @@ async def run_voice_session(websocket: WebSocket):
         # Wait for the client's "start" message.
         first = await websocket.receive_json()
         if first.get("type") != "start":
-            await websocket.send_json({"type": "error", "message": "expected start message"})
-            return
+            raise ValidationError("expected start message")
 
         session_id = first.get("session_id") or f"web-{int(started_at * 1000)}"
 
@@ -160,21 +168,18 @@ async def run_voice_session(websocket: WebSocket):
         try:
             session_config.validate()
         except ValueError as e:
-            await websocket.send_json({"type": "error", "message": f"Invalid config: {e}"})
-            return
+            raise ValidationError(f"Invalid config: {e}")
         print(f"[DEBUG] Session config: language={session_config.language}, "
               f"company={session_config.company_name}, debt_type={session_config.debt_type}")
 
         # Identity and debt amount come from the customer record — the source of truth.
         customer_id = first.get("customer_id")
         if customer_id is None:
-            await websocket.send_json({"type": "error", "message": "customer_id is required"})
-            return
+            raise ValidationError("customer_id is required")
 
         customer = await get_customer_by_id(int(customer_id))
         if customer is None:
-            await websocket.send_json({"type": "error", "message": "customer not found"})
-            return
+            raise NotFoundError("customer not found")
 
         amount_owed = float(customer["amount_owed"])
         debtor_phone = customer["phone"]
@@ -280,12 +285,13 @@ async def run_voice_session(websocket: WebSocket):
 
     except WebSocketDisconnect:
         print(f"[DEBUG] WebSocket disconnected (session={session_id})")
+    except AppError as e:
+        # Expected, client-facing errors (bad start, missing/unknown customer).
+        print(f"[DEBUG] voice_session rejected: {e.error_type}: {e.message}")
+        await _send_error(websocket, e.message)
     except Exception as e:
         print(f"[ERROR] voice_session failed: {e}")
-        try:
-            await websocket.send_json({"type": "error", "message": "session error"})
-        except Exception:
-            pass
+        await _send_error(websocket, "session error")
     finally:
         # Best-effort persistence if the session ended without a clean terminal turn.
         if session_id is not None and not finalized and call_id is not None:

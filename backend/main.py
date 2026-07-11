@@ -8,11 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
-from db import (
-    close_pool,
-    create_call, update_call_sid, complete_call,
-    get_all_calls,
-)
+from core.database import close_pool
+from calls.repository import create_call, update_call_sid, complete_call,get_all_calls
+# from db import (update_call_sid, complete_call,get_all_calls,)
 from datetime import date
 from claude_agent import extract_ptp, agent_reply, format_date_spoken, format_amount_for_speech, SessionConfig
 from customers.router import router as customers_router
@@ -361,11 +359,11 @@ async def voice_session(websocket: WebSocket):
 # Dashboard API
 # ---------------------------------------------------------------------------
 
-@app.get("/api/calls")
-async def get_calls():
-    """Retrieve all call logs for the dashboard."""
-    calls = await get_all_calls()
-    return {"calls": calls}
+# @app.get("/api/calls")
+# async def get_calls():
+#     """Retrieve all call logs for the dashboard."""
+#     calls = await get_all_calls()
+#     return {"calls": calls}
 
 
 if __name__ == "__main__":

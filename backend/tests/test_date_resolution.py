@@ -1,5 +1,5 @@
 """
-Unit tests for resolve_date_phrase / format_date_spoken (backend/claude_agent.py).
+Unit tests for resolve_date_phrase / format_date_spoken (backend/dates.py).
 
 All frozen instants use 12:00:00 UTC so that conversion to LOCAL_TZ
 (America/Mexico_City, UTC-6) never crosses a local day boundary.
@@ -10,7 +10,7 @@ from datetime import date
 import pytest
 from freezegun import freeze_time
 
-from claude_agent import resolve_date_phrase, format_date_spoken
+from conversation.dates import resolve_date_phrase, format_date_spoken
 
 FROZEN_FRIDAY = "2026-07-10 12:00:00"  # local: Friday, July 10 2026
 
@@ -63,12 +63,12 @@ class TestResolveDatePhraseEnglish:
         assert resolve_date_phrase(None) is None
 
     def test_parser_exception_is_swallowed_and_returns_none(self, monkeypatch):
-        import claude_agent
+        import conversation.dates
 
         def _raise(*args, **kwargs):
             raise ValueError("boom")
 
-        monkeypatch.setattr(claude_agent._CAL, "parseDT", _raise)
+        monkeypatch.setattr(conversation.dates._CAL, "parseDT", _raise)
         with freeze_time(FROZEN_FRIDAY):
             assert resolve_date_phrase("next monday") is None
 

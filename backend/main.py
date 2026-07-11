@@ -12,7 +12,8 @@ from core.database import close_pool
 from calls.repository import create_call, update_call_sid, complete_call,get_all_calls
 # from db import (update_call_sid, complete_call,get_all_calls,)
 from datetime import date
-from claude_agent import extract_ptp, agent_reply, format_date_spoken, format_amount_for_speech, SessionConfig
+from claude_agent import extract_ptp, agent_reply, format_date_spoken, format_amount_for_speech
+from conversation.schemas import SessionConfig
 from customers.router import router as customers_router
 from customers.repository import get_customer_by_id
 from voice_io import synthesize_speech, transcribe_speech
@@ -158,7 +159,7 @@ async def voice_session(websocket: WebSocket):
         session_id = first.get("session_id") or f"web-{int(started_at * 1000)}"
         
         # Parse session config from start message with defaults
-        from claude_agent import SessionConfig
+        from conversation.schemas import SessionConfig
         session_config = SessionConfig(
             language=first.get("language", "English"),
             company_name=first.get("company_name", "Our Company"),

@@ -133,15 +133,13 @@ npm start
 
 ## Running Tests
 
-Unit tests cover the deterministic core logic (date phrase resolution, transcript sanitization) — no API keys or database required.
+Unit tests cover the deterministic core logic (date phrase resolution, transcript sanitization, turn/terminal-state decisions), plus WebSocket integration tests for the `/ws/session` protocol — no API keys or database required (external clients are mocked).
 
 ```bash
 cd backend
 pip install -r requirements.txt
 pytest
 ```
-
-> Conversation-flow and Claude/ElevenLabs API-integration tests are deferred until the voice-transport refactor lands.
 
 ## Dashboard
 
@@ -164,10 +162,9 @@ Open `http://localhost:3000`
 | Method   | Endpoint              | Description                                |
 | ---------| ----------------------| ------------------------------------------ |
 | `GET`    | `/api/calls`          | List all session records                   |
-| `GET`    | `/api/config`         | Get current config (phone, amount)         |
-| `PUT`    | `/api/config`         | Update a config value                      |
 | `WS`     | `/ws/session`         | Browser voice session (see protocol below) |
 | `GET`    | `/api/customers`      | List all customers                         |
+| `GET`    | `/api/customers/{id}` | Get a single customer                      |
 | `POST`   | `/api/customers`      | Create a customer                          |
 | `PUT`    | `/api/customers/{id}` | Update a customer                          |
 | `DELETE` | `/api/customers/{id}` | Delete a customer                          |
@@ -177,17 +174,18 @@ Open `http://localhost:3000`
 
 ```
 client → server:
-  {"type": "start", "session_id": "<uuid>", "customer_id": <id>, "customer_name": "<name>", "language": "English"|"Spanish", "debt_type": "credit_card"|"mortgage"|"insurance_premium", "company_name": "<name>"}  # open the session
-  {"type": "user",  "text": "<recognized speech>"}
+  {"type": "start", "session_id": "<uuid>", "customer_id": <int>, "customer_name": "<name>", "language": "English"|"Spanish", "debt_type": "credit_card"|"mortgage"|"insurance_premium", "company_name": "<name>"}  # open the session
+  {"type": "user_audio", "audio": "<base64 webm/opus>"}
   {"type": "end"}                              # user ended early
 
 server → client:
-  {"type": "agent",    "text": "...", "is_terminal": false}
+  {"type": "agent",    "text": "...", "audio": "<b64 mp3>", "is_terminal": bool}
+  {"type": "user",     "text": "..."}          # echo of recognized speech
   {"type": "complete", "outcome": "...", "promise_date": "...", "promise_amount": 0.0}
   {"type": "error",    "message": "..."}
 ```
 
-The browser-generated `session_id` is stored in the `calls.call_sid` column.
+The browser-generated `session_id` is stored in the `calls.call_sid` column. Errors follow a shared `AppError` vocabulary so HTTP and WebSocket surfaces report failures consistently (`core/exceptions.py`).
 
 ## Database Schema
 
@@ -196,6 +194,8 @@ CREATE TABLE calls (
     id               SERIAL PRIMARY KEY,
     call_sid         TEXT,                        -- browser session id
     phone_number     TEXT NOT NULL,
+    customer_id      INTEGER REFERENCES customers(id),
+    customer_name    TEXT,
     status           TEXT DEFAULT 'initiated',   -- initiated | completed | no_answer
     outcome          TEXT,                        -- promise_made | refused | no_commitment
     amount_owed      NUMERIC(10, 2),
@@ -205,11 +205,6 @@ CREATE TABLE calls (
     duration_seconds INTEGER,
     initiated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at     TIMESTAMP
-);
-
-CREATE TABLE config (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
 );
 
 CREATE TABLE customers (
@@ -228,10 +223,30 @@ CREATE TABLE customers (
 ```
 voice-ivr-payment/
 ├── backend/
-│   ├── main.py            # FastAPI app, /ws/session voice transport, session orchestration
-│   ├── claude_agent.py    # Claude AI — agent_reply() and extract_ptp()
-│   ├── voice_io.py        # ElevenLabs TTS (synthesize_speech) and STT (transcribe_speech)
-│   ├── db.py              # PostgreSQL operations
+│   ├── main.py              # FastAPI app factory — CORS, exception handlers, router wiring
+│   ├── core/
+│   │   ├── database.py      # asyncpg pool (get_pool/close_pool)
+│   │   └── exceptions.py    # AppError vocabulary shared by HTTP handlers and the WS protocol
+│   ├── conversation/        # voice negotiation session (the /ws/session feature)
+│   │   ├── router.py        # WebSocket route — thin transport layer
+│   │   ├── service.py       # session orchestration: wires socket + LLM + TTS/STT + DB
+│   │   ├── state.py         # pure turn-counting / terminal-condition logic (unit-testable)
+│   │   ├── agent.py         # Claude calls — agent_reply() and extract_ptp()
+│   │   ├── prompts.py       # system prompts + debt-type terminology per language
+│   │   ├── dates.py         # date-phrase resolution (English/Spanish)
+│   │   └── schemas.py       # SessionConfig
+│   ├── voice/
+│   │   ├── client.py        # ElevenLabs TTS/STT client (synthesize_speech, transcribe_speech)
+│   │   └── formatting.py    # STT transcript cleanup (clean_transcript)
+│   ├── calls/                # /api/calls
+│   │   ├── router.py
+│   │   ├── repository.py
+│   │   └── schemas.py
+│   ├── customers/            # /api/customers
+│   │   ├── router.py
+│   │   ├── repository.py
+│   │   └── schemas.py
+│   ├── tests/
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
